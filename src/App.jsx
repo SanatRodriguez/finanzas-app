@@ -102,15 +102,18 @@ const NOMBRES_MES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Se
 const NOMBRES_MES_LARGO = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 // ============ STORAGE ============
+// Configuración: se guardan ajustes/categorías en localStorage
+// Las transacciones viven en Google Sheets via Apps Script (con cache local)
 const STORAGE_KEYS = {
-  TRANSACCIONES: 'finanzas:transacciones',
+  TRANSACCIONES_CACHE: 'finanzas:tx_cache',
   CONFIG: 'finanzas:config',
   CATEGORIAS_GASTO: 'finanzas:cat_gasto',
   CATEGORIAS_INGRESO: 'finanzas:cat_ingreso',
-  SEEDED: 'finanzas:seeded',
+  SCRIPT_URL: 'finanzas:script_url',
+  PENDING_SYNC: 'finanzas:pending_sync',
 };
 
-const loadData = async (key, fallback) => {
+const loadLocal = (key, fallback) => {
   try {
     const v = localStorage.getItem(key);
     if (v) return JSON.parse(v);
@@ -120,7 +123,7 @@ const loadData = async (key, fallback) => {
   }
 };
 
-const saveData = async (key, value) => {
+const saveLocal = (key, value) => {
   try {
     localStorage.setItem(key, JSON.stringify(value));
     return true;
@@ -129,6 +132,56 @@ const saveData = async (key, value) => {
     return false;
   }
 };
+
+// API CLIENT para Apps Script
+async function apiCall(scriptUrl, method, body) {
+  if (!scriptUrl) throw new Error('No hay URL de Google Apps Script configurada. Ve a Ajustes para configurarla.');
+
+  const opts = method === 'GET'
+    ? { method: 'GET' }
+    : {
+        method: 'POST',
+        // Apps Script usa text/plain para evitar preflight CORS
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(body),
+      };
+
+  const url = method === 'GET' ? scriptUrl + '?action=' + body.action : scriptUrl;
+  const res = await fetch(url, opts);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Error desconocido');
+  return data;
+}
+
+async function apiList(scriptUrl) {
+  const res = await apiCall(scriptUrl, 'GET', { action: 'list' });
+  return res.data || [];
+}
+
+async function apiSave(scriptUrl, tx) {
+  const res = await apiCall(scriptUrl, 'POST', { action: 'save', tx });
+  return res.data;
+}
+
+async function apiSaveMany(scriptUrl, txs) {
+  return apiCall(scriptUrl, 'POST', { action: 'saveMany', txs });
+}
+
+async function apiDelete(scriptUrl, id) {
+  return apiCall(scriptUrl, 'POST', { action: 'delete', id });
+}
+
+async function apiDeleteGroup(scriptUrl, grupoId, fromDate) {
+  return apiCall(scriptUrl, 'POST', { action: 'deleteGroup', grupoId, fromDate });
+}
+
+async function apiUpdate(scriptUrl, id, changes) {
+  return apiCall(scriptUrl, 'POST', { action: 'update', id, changes });
+}
+
+async function apiReplaceAll(scriptUrl, txs) {
+  return apiCall(scriptUrl, 'POST', { action: 'replaceAll', txs });
+}
 
 // ============ COMPONENTE PRINCIPAL ============
 export default function App() {
@@ -143,29 +196,38 @@ export default function App() {
   const [editTx, setEditTx] = useState(null);
   const [toast, setToast] = useState(null);
 
-  // Cargar datos iniciales (con siembra automática la primera vez)
+  const [scriptUrl, setScriptUrl] = useState('');
+  const [syncStatus, setSyncStatus] = useState('idle'); // idle | syncing | error | offline
+
+  // Cargar datos iniciales
   useEffect(() => {
     (async () => {
-      const [txs, cfg, cg, ci, seeded] = await Promise.all([
-        loadData(STORAGE_KEYS.TRANSACCIONES, []),
-        loadData(STORAGE_KEYS.CONFIG, DEFAULT_CONFIG),
-        loadData(STORAGE_KEYS.CATEGORIAS_GASTO, DEFAULT_CATEGORIAS_GASTO),
-        loadData(STORAGE_KEYS.CATEGORIAS_INGRESO, DEFAULT_CATEGORIAS_INGRESO),
-        loadData(STORAGE_KEYS.SEEDED, false),
-      ]);
+      const cfg = loadLocal(STORAGE_KEYS.CONFIG, DEFAULT_CONFIG);
+      const cg = loadLocal(STORAGE_KEYS.CATEGORIAS_GASTO, DEFAULT_CATEGORIAS_GASTO);
+      const ci = loadLocal(STORAGE_KEYS.CATEGORIAS_INGRESO, DEFAULT_CATEGORIAS_INGRESO);
+      const url = loadLocal(STORAGE_KEYS.SCRIPT_URL, '');
+      const cache = loadLocal(STORAGE_KEYS.TRANSACCIONES_CACHE, []);
 
-      let finalTxs = txs;
-      // Si nunca se ha sembrado y no hay transacciones, cargar datos de Sanat
-      if (!seeded && txs.length === 0) {
-        finalTxs = SEED_DATA;
-        await saveData(STORAGE_KEYS.TRANSACCIONES, finalTxs);
-        await saveData(STORAGE_KEYS.SEEDED, true);
-      }
-
-      setTransacciones(finalTxs);
       setConfig(cfg);
       setCatGasto(cg);
       setCatIngreso(ci);
+      setScriptUrl(url);
+      setTransacciones(cache); // mostrar cache mientras carga del server
+
+      // Si hay URL, traer desde el Sheet
+      if (url) {
+        try {
+          setSyncStatus('syncing');
+          const remoteTxs = await apiList(url);
+          setTransacciones(remoteTxs);
+          saveLocal(STORAGE_KEYS.TRANSACCIONES_CACHE, remoteTxs);
+          setSyncStatus('idle');
+        } catch (e) {
+          console.error('Error cargando desde Sheet:', e);
+          setSyncStatus('error');
+        }
+      }
+
       setLoading(false);
     })();
   }, []);
@@ -175,11 +237,38 @@ export default function App() {
     setTimeout(() => setToast(null), 2500);
   };
 
-  // ============ ACCIONES ============
+  // ============ ACCIONES (sincronizadas con Google Sheet) ============
+
+  // Helper: actualizar estado + cache local + opcional callback al server
+  const updateLocal = (newTxs) => {
+    setTransacciones(newTxs);
+    saveLocal(STORAGE_KEYS.TRANSACCIONES_CACHE, newTxs);
+  };
+
   const guardarTx = async (tx) => {
-    let nuevas;
+    if (!scriptUrl) {
+      alert('Primero configura la URL del Google Apps Script en Ajustes ⚙️');
+      return;
+    }
+
     if (tx.id) {
-      nuevas = transacciones.map(t => t.id === tx.id ? tx : t);
+      // Editar existente
+      const updated = { ...tx, monto: parseFloat(tx.monto) || 0 };
+      const nuevas = transacciones.map(t => t.id === tx.id ? updated : t);
+      updateLocal(nuevas);
+      setShowForm(false);
+      setEditTx(null);
+      showToast('Actualizado ✓');
+
+      try {
+        setSyncStatus('syncing');
+        await apiSave(scriptUrl, updated);
+        setSyncStatus('idle');
+      } catch (e) {
+        console.error(e);
+        setSyncStatus('error');
+        showToast('No se pudo sincronizar', 'error');
+      }
     } else {
       // Nueva transacción - posible recurrencia
       const baseId = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -191,28 +280,53 @@ export default function App() {
       for (let i = 0; i < veces; i++) {
         const fecha = new Date(fechaBase);
         fecha.setMonth(fecha.getMonth() + i);
-        nuevasTx.push({
-          ...tx,
+        const nuevaTx = {
+          tipo: tx.tipo,
+          tipoRegistro: tx.tipoRegistro,
+          categoria: tx.categoria,
+          subcategoria: tx.subcategoria || '',
+          detalle: tx.detalle || '',
+          persona: tx.persona || config.persona,
           id: i === 0 ? baseId : `${baseId}_${i}`,
           fecha: toISODate(fecha),
           grupoId,
           monto: parseFloat(tx.monto) || 0,
-        });
+        };
+        nuevasTx.push(nuevaTx);
       }
-      nuevas = [...transacciones, ...nuevasTx];
+
+      updateLocal([...transacciones, ...nuevasTx]);
+      setShowForm(false);
+      setEditTx(null);
+      showToast(veces > 1 ? `${veces} registros guardados ✓` : 'Registrado ✓');
+
+      try {
+        setSyncStatus('syncing');
+        if (nuevasTx.length === 1) {
+          await apiSave(scriptUrl, nuevasTx[0]);
+        } else {
+          await apiSaveMany(scriptUrl, nuevasTx);
+        }
+        setSyncStatus('idle');
+      } catch (e) {
+        console.error(e);
+        setSyncStatus('error');
+        showToast('Guardado local. Falló sync.', 'error');
+      }
     }
-    setTransacciones(nuevas);
-    await saveData(STORAGE_KEYS.TRANSACCIONES, nuevas);
-    showToast(tx.id ? 'Actualizado ✓' : 'Registrado ✓');
-    setShowForm(false);
-    setEditTx(null);
   };
 
   const eliminarTx = async (id, soloEste = true) => {
+    if (!scriptUrl) {
+      alert('Primero configura la URL del Google Apps Script en Ajustes ⚙️');
+      return;
+    }
+
     const tx = transacciones.find(t => t.id === id);
+    if (!tx) return;
+
     let nuevas;
-    if (!soloEste && tx?.grupoId) {
-      // eliminar todo el grupo desde esta fecha en adelante
+    if (!soloEste && tx.grupoId) {
       nuevas = transacciones.filter(t => {
         if (t.grupoId !== tx.grupoId) return true;
         return new Date(t.fecha) < new Date(tx.fecha);
@@ -220,20 +334,62 @@ export default function App() {
     } else {
       nuevas = transacciones.filter(t => t.id !== id);
     }
-    setTransacciones(nuevas);
-    await saveData(STORAGE_KEYS.TRANSACCIONES, nuevas);
+    updateLocal(nuevas);
     showToast('Eliminado');
+
+    try {
+      setSyncStatus('syncing');
+      if (!soloEste && tx.grupoId) {
+        await apiDeleteGroup(scriptUrl, tx.grupoId, tx.fecha);
+      } else {
+        await apiDelete(scriptUrl, id);
+      }
+      setSyncStatus('idle');
+    } catch (e) {
+      console.error(e);
+      setSyncStatus('error');
+      showToast('Eliminado local. Falló sync.', 'error');
+    }
   };
 
   const marcarComoReal = async (id) => {
+    if (!scriptUrl) {
+      alert('Primero configura la URL del Google Apps Script en Ajustes ⚙️');
+      return;
+    }
     const tx = transacciones.find(t => t.id === id);
     if (!tx) return;
+
     const nuevas = transacciones.map(t =>
       t.id === id ? { ...t, tipoRegistro: 'real' } : t
     );
-    setTransacciones(nuevas);
-    await saveData(STORAGE_KEYS.TRANSACCIONES, nuevas);
+    updateLocal(nuevas);
     showToast('Marcado como real ✓');
+
+    try {
+      setSyncStatus('syncing');
+      await apiUpdate(scriptUrl, id, { tipoRegistro: 'real' });
+      setSyncStatus('idle');
+    } catch (e) {
+      console.error(e);
+      setSyncStatus('error');
+    }
+  };
+
+  // Recargar manualmente desde el Sheet
+  const sincronizar = async () => {
+    if (!scriptUrl) return;
+    try {
+      setSyncStatus('syncing');
+      const remoteTxs = await apiList(scriptUrl);
+      updateLocal(remoteTxs);
+      setSyncStatus('idle');
+      showToast('Sincronizado ✓');
+    } catch (e) {
+      console.error(e);
+      setSyncStatus('error');
+      showToast('Error al sincronizar', 'error');
+    }
   };
 
   const exportarCSV = () => {
@@ -321,16 +477,29 @@ export default function App() {
             <h1 className="font-serif text-2xl font-semibold text-stone-900 leading-none tracking-tight">
               Finanzas<span className="text-amber-700 italic">.</span>
             </h1>
-            <p className="text-[11px] text-stone-500 uppercase tracking-widest mt-1">
+            <p className="text-[11px] text-stone-500 uppercase tracking-widest mt-1 flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${!scriptUrl ? 'bg-stone-300' : syncStatus === 'error' ? 'bg-red-500' : syncStatus === 'syncing' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
               {config.persona}
             </p>
           </div>
-          <button
-            onClick={() => setVista('config')}
-            className="p-2 hover:bg-stone-100 rounded-full transition"
-          >
-            <Settings className="w-5 h-5 text-stone-600" />
-          </button>
+          <div className="flex items-center gap-1">
+            {scriptUrl && (
+              <button
+                onClick={sincronizar}
+                disabled={syncStatus === 'syncing'}
+                className="p-2 hover:bg-stone-100 rounded-full transition disabled:opacity-50"
+                title="Sincronizar"
+              >
+                <span className={`text-stone-600 text-lg inline-block ${syncStatus === 'syncing' ? 'animate-spin' : ''}`}>↻</span>
+              </button>
+            )}
+            <button
+              onClick={() => setVista('config')}
+              className="p-2 hover:bg-stone-100 rounded-full transition"
+            >
+              <Settings className="w-5 h-5 text-stone-600" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -366,11 +535,16 @@ export default function App() {
           <Analisis txDelMes={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} stats={stats} />
         )}
         {vista === 'config' && (
-          <Config config={config} setConfig={async (c) => { setConfig(c); await saveData(STORAGE_KEYS.CONFIG, c); showToast('Guardado ✓'); }}
-            catGasto={catGasto} setCatGasto={async (c) => { setCatGasto(c); await saveData(STORAGE_KEYS.CATEGORIAS_GASTO, c); }}
-            catIngreso={catIngreso} setCatIngreso={async (c) => { setCatIngreso(c); await saveData(STORAGE_KEYS.CATEGORIAS_INGRESO, c); }}
+          <Config config={config} setConfig={(c) => { setConfig(c); saveLocal(STORAGE_KEYS.CONFIG, c); showToast('Guardado ✓'); }}
+            catGasto={catGasto} setCatGasto={(c) => { setCatGasto(c); saveLocal(STORAGE_KEYS.CATEGORIAS_GASTO, c); }}
+            catIngreso={catIngreso} setCatIngreso={(c) => { setCatIngreso(c); saveLocal(STORAGE_KEYS.CATEGORIAS_INGRESO, c); }}
             onExport={exportarCSV}
             totalTx={transacciones.length}
+            scriptUrl={scriptUrl}
+            setScriptUrl={(u) => { setScriptUrl(u); saveLocal(STORAGE_KEYS.SCRIPT_URL, u); }}
+            transacciones={transacciones}
+            onSincronizar={sincronizar}
+            syncStatus={syncStatus}
           />
         )}
       </main>
@@ -414,6 +588,7 @@ export default function App() {
           catGasto={catGasto}
           catIngreso={catIngreso}
           config={config}
+          transacciones={transacciones}
           onGuardar={guardarTx}
           onCerrar={() => { setShowForm(false); setEditTx(null); }}
         />
@@ -855,7 +1030,7 @@ function CategoriaCard({ cat, moneda }) {
 }
 
 // ============ FORMULARIO ============
-function FormularioTx({ tx, catGasto, catIngreso, config, onGuardar, onCerrar }) {
+function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuardar, onCerrar }) {
   const [tipo, setTipo] = useState(tx?.tipo || 'gasto');
   const [tipoRegistro, setTipoRegistro] = useState(tx?.tipoRegistro || 'real');
   const [categoria, setCategoria] = useState(tx?.categoria || '');
@@ -864,9 +1039,38 @@ function FormularioTx({ tx, catGasto, catIngreso, config, onGuardar, onCerrar })
   const [monto, setMonto] = useState(tx?.monto || '');
   const [fecha, setFecha] = useState(tx?.fecha || toISODate(new Date()));
   const [veces, setVeces] = useState(1);
+  const [showAllCats, setShowAllCats] = useState(false);
+  const [showOptional, setShowOptional] = useState(false);
 
   const cats = tipo === 'gasto' ? catGasto : catIngreso;
   const editando = !!tx?.id;
+
+  // Calcular las categorías más usadas según el tipo
+  const topCats = useMemo(() => {
+    const counts = {};
+    (transacciones || []).filter(t => t.tipo === tipo).forEach(t => {
+      counts[t.categoria] = (counts[t.categoria] || 0) + 1;
+    });
+    const sorted = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([id]) => id);
+
+    // Si hay menos de 3 categorías usadas, completar con las primeras del catálogo
+    const top3 = sorted.slice(0, 3);
+    if (top3.length < 3) {
+      cats.forEach(c => {
+        if (!top3.includes(c.id) && top3.length < 3) top3.push(c.id);
+      });
+    }
+    return top3.map(id => cats.find(c => c.id === id)).filter(Boolean);
+  }, [transacciones, tipo, cats]);
+
+  // Si la categoría seleccionada no está en top3, mostrar todas
+  useEffect(() => {
+    if (categoria && !topCats.find(c => c.id === categoria)) {
+      setShowAllCats(true);
+    }
+  }, [categoria, topCats]);
 
   const submit = () => {
     if (!categoria || !monto) {
@@ -883,39 +1087,37 @@ function FormularioTx({ tx, catGasto, catIngreso, config, onGuardar, onCerrar })
 
   return (
     <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-stone-50 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[92vh] overflow-y-auto animate-slide-up shadow-2xl">
-        {/* HEADER */}
-        <div className="sticky top-0 bg-stone-50 z-10 px-5 pt-4 pb-3 border-b border-stone-200">
+      <div className="bg-stone-50 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col animate-slide-up shadow-2xl">
+
+        {/* HERO: Header + Toggle + Monto todo junto, no sticky */}
+        <div className="bg-gradient-to-b from-stone-100 to-stone-50 px-5 pt-4 pb-5 rounded-t-3xl">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-serif text-xl font-semibold">{editando ? 'Editar' : 'Nuevo registro'}</h2>
-            <button onClick={onCerrar} className="p-1.5 hover:bg-stone-200 rounded-full">
+            <h2 className="font-serif text-lg font-semibold">{editando ? 'Editar' : 'Nuevo registro'}</h2>
+            <button onClick={onCerrar} className="p-1.5 hover:bg-stone-200 rounded-full -mr-1.5">
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Toggle Tipo */}
-          <div className="grid grid-cols-2 gap-1 bg-stone-200 p-1 rounded-xl">
+          {/* Toggle Tipo - segmented control */}
+          <div className="grid grid-cols-2 gap-1 bg-stone-200 p-1 rounded-xl mb-4">
             <button
-              onClick={() => { setTipo('gasto'); setCategoria(''); }}
-              className={`py-2 rounded-lg text-sm font-medium transition ${tipo === 'gasto' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600'}`}
+              onClick={() => { setTipo('gasto'); setCategoria(''); setShowAllCats(false); }}
+              className={`py-1.5 rounded-lg text-xs font-medium transition ${tipo === 'gasto' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600'}`}
             >
               💸 Gasto
             </button>
             <button
-              onClick={() => { setTipo('ingreso'); setCategoria(''); }}
-              className={`py-2 rounded-lg text-sm font-medium transition ${tipo === 'ingreso' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600'}`}
+              onClick={() => { setTipo('ingreso'); setCategoria(''); setShowAllCats(false); }}
+              className={`py-1.5 rounded-lg text-xs font-medium transition ${tipo === 'ingreso' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600'}`}
             >
               💰 Ingreso
             </button>
           </div>
-        </div>
 
-        <div className="p-5 space-y-4">
-          {/* MONTO GIGANTE */}
-          <div className="text-center py-2">
-            <label className="text-[10px] uppercase tracking-widest text-stone-500">Monto</label>
-            <div className="flex items-center justify-center gap-1 mt-1">
-              <span className="font-serif text-2xl text-stone-400">{config.moneda}</span>
+          {/* MONTO - HERO CENTRAL */}
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-1.5">
+              <span className="font-serif text-xl text-stone-400 mt-2">{config.moneda}</span>
               <input
                 type="number"
                 inputMode="decimal"
@@ -923,110 +1125,115 @@ function FormularioTx({ tx, catGasto, catIngreso, config, onGuardar, onCerrar })
                 onChange={e => setMonto(e.target.value)}
                 placeholder="0.00"
                 step="0.01"
-                className="font-serif text-5xl font-semibold bg-transparent text-center w-48 outline-none focus:outline-none"
+                autoFocus={!editando}
+                className="font-serif text-4xl font-semibold bg-transparent text-center w-44 outline-none focus:outline-none placeholder:text-stone-300"
               />
             </div>
           </div>
 
-          {/* Tipo Registro */}
-          <div>
-            <label className="text-[10px] uppercase tracking-widest text-stone-500 mb-1.5 block">Tipo de registro</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setTipoRegistro('real')}
-                className={`p-3 rounded-xl border-2 transition text-left ${tipoRegistro === 'real' ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 bg-white'}`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <Zap className="w-4 h-4" />
-                  <span className="font-semibold text-sm">Real</span>
-                </div>
-                <p className={`text-[10px] mt-0.5 ${tipoRegistro === 'real' ? 'text-stone-300' : 'text-stone-500'}`}>Ya ocurrió</p>
-              </button>
-              <button
-                onClick={() => setTipoRegistro('proyectado')}
-                className={`p-3 rounded-xl border-2 transition text-left ${tipoRegistro === 'proyectado' ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 bg-white'}`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <Calendar className="w-4 h-4" />
-                  <span className="font-semibold text-sm">Proyectado</span>
-                </div>
-                <p className={`text-[10px] mt-0.5 ${tipoRegistro === 'proyectado' ? 'text-stone-300' : 'text-stone-500'}`}>Presupuesto</p>
-              </button>
-            </div>
+          {/* Tipo Registro - chips compactos */}
+          <div className="flex gap-2 justify-center mt-3">
+            <button
+              onClick={() => setTipoRegistro('real')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition flex items-center gap-1 ${tipoRegistro === 'real' ? 'bg-stone-900 text-white' : 'bg-white border border-stone-200 text-stone-600'}`}
+            >
+              <Zap className="w-3 h-3" /> Real
+            </button>
+            <button
+              onClick={() => setTipoRegistro('proyectado')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition flex items-center gap-1 ${tipoRegistro === 'proyectado' ? 'bg-stone-900 text-white' : 'bg-white border border-stone-200 text-stone-600'}`}
+            >
+              <Calendar className="w-3 h-3" /> Proyectado
+            </button>
           </div>
+        </div>
+
+        {/* CONTENIDO SCROLLABLE */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 
           {/* Categoría */}
           <div>
-            <label className="text-[10px] uppercase tracking-widest text-stone-500 mb-1.5 block">Categoría</label>
-            <div className="grid grid-cols-4 gap-2">
-              {cats.map(c => (
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[10px] uppercase tracking-widest text-stone-500">Categoría</label>
+              {topCats.length > 0 && cats.length > 3 && (
                 <button
-                  key={c.id}
-                  onClick={() => setCategoria(c.id)}
-                  className={`p-2 rounded-xl border-2 transition flex flex-col items-center gap-0.5 ${categoria === c.id ? 'border-stone-900 bg-white' : 'border-stone-200 bg-white hover:border-stone-300'}`}
-                  style={categoria === c.id ? { borderColor: c.color } : {}}
+                  onClick={() => setShowAllCats(!showAllCats)}
+                  className="text-[11px] font-medium text-amber-700 hover:text-amber-800"
                 >
-                  <span className="text-xl">{c.emoji}</span>
-                  <span className="text-[9px] text-stone-700 font-medium leading-tight text-center">{c.nombre}</span>
+                  {showAllCats ? '↑ Ver menos' : `↓ Ver todas (${cats.length})`}
                 </button>
-              ))}
+              )}
             </div>
+
+            {!showAllCats ? (
+              // Vista compacta: top 3 + más
+              <div className="grid grid-cols-4 gap-2">
+                {topCats.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => setCategoria(c.id)}
+                    className={`p-2 rounded-xl border-2 transition flex flex-col items-center gap-0.5 ${categoria === c.id ? 'bg-white' : 'border-stone-200 bg-white hover:border-stone-300'}`}
+                    style={{ borderColor: categoria === c.id ? c.color : undefined }}
+                  >
+                    <span className="text-xl">{c.emoji}</span>
+                    <span className="text-[9px] text-stone-700 font-medium leading-tight text-center line-clamp-1">{c.nombre}</span>
+                  </button>
+                ))}
+                {cats.length > 3 && (
+                  <button
+                    onClick={() => setShowAllCats(true)}
+                    className="p-2 rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 hover:bg-stone-100 transition flex flex-col items-center justify-center gap-0.5"
+                  >
+                    <span className="text-lg">⋯</span>
+                    <span className="text-[9px] text-stone-600 font-medium">Más</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              // Vista expandida: todas las categorías
+              <div className="grid grid-cols-4 gap-2">
+                {cats.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => setCategoria(c.id)}
+                    className={`p-2 rounded-xl border-2 transition flex flex-col items-center gap-0.5 ${categoria === c.id ? 'bg-white' : 'border-stone-200 bg-white hover:border-stone-300'}`}
+                    style={{ borderColor: categoria === c.id ? c.color : undefined }}
+                  >
+                    <span className="text-xl">{c.emoji}</span>
+                    <span className="text-[9px] text-stone-700 font-medium leading-tight text-center line-clamp-1">{c.nombre}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Detalle */}
-          <div>
-            <label className="text-[10px] uppercase tracking-widest text-stone-500 mb-1.5 block">Detalle (opcional)</label>
-            <input
-              type="text"
-              value={detalle}
-              onChange={e => setDetalle(e.target.value)}
-              placeholder="Ej: Pago de luz, almuerzo del jueves..."
-              className="w-full px-3.5 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:border-stone-900 outline-none"
-            />
-          </div>
-
-          {/* Subcategoría */}
-          <div>
-            <label className="text-[10px] uppercase tracking-widest text-stone-500 mb-1.5 block">Subcategoría (opcional)</label>
-            <input
-              type="text"
-              value={subcategoria}
-              onChange={e => setSubcategoria(e.target.value)}
-              placeholder="Ej: Servicios, Comida casa..."
-              className="w-full px-3.5 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:border-stone-900 outline-none"
-            />
-          </div>
-
-          {/* Fecha */}
+          {/* Fecha - siempre visible, compacto */}
           <div>
             <label className="text-[10px] uppercase tracking-widest text-stone-500 mb-1.5 block">Fecha</label>
             <input
               type="date"
               value={fecha}
               onChange={e => setFecha(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:border-stone-900 outline-none"
+              className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:border-stone-900 outline-none"
             />
           </div>
 
-          {/* Recurrencia */}
+          {/* Recurrencia - solo en nuevos */}
           {!editando && (
             <div>
               <label className="text-[10px] uppercase tracking-widest text-stone-500 mb-1.5 block flex items-center gap-1.5">
                 <Repeat className="w-3 h-3" /> Repetir mensualmente
               </label>
-              <div className="flex items-center gap-2 bg-white border border-stone-200 rounded-xl p-2">
-                <button
-                  onClick={() => setVeces(Math.max(1, veces - 1))}
-                  className="w-9 h-9 rounded-lg bg-stone-100 hover:bg-stone-200 flex items-center justify-center text-lg font-medium"
-                >−</button>
-                <div className="flex-1 text-center">
-                  <span className="font-serif text-lg font-semibold">{veces}</span>
-                  <span className="text-stone-500 text-xs ml-1">{veces === 1 ? 'vez (sin repetir)' : 'veces'}</span>
-                </div>
-                <button
-                  onClick={() => setVeces(Math.min(12, veces + 1))}
-                  className="w-9 h-9 rounded-lg bg-stone-100 hover:bg-stone-200 flex items-center justify-center text-lg font-medium"
-                >+</button>
+              <div className="flex gap-1.5">
+                {[1, 3, 6, 12].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setVeces(v)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${veces === v ? 'bg-stone-900 text-white border-stone-900' : 'bg-white border-stone-200 text-stone-600 hover:border-stone-300'}`}
+                  >
+                    {v === 1 ? 'Solo 1' : `${v} meses`}
+                  </button>
+                ))}
               </div>
               {veces > 1 && (
                 <p className="text-[11px] text-stone-500 mt-1.5 flex items-center gap-1">
@@ -1034,20 +1241,45 @@ function FormularioTx({ tx, catGasto, catIngreso, config, onGuardar, onCerrar })
                   Se crearán {veces} registros, uno por mes
                 </p>
               )}
-              <div className="flex gap-1.5 mt-2">
-                {[1, 3, 6, 12].map(v => (
-                  <button key={v} onClick={() => setVeces(v)} className={`text-xs px-2.5 py-1 rounded-full border ${veces === v ? 'bg-stone-900 text-white border-stone-900' : 'bg-white border-stone-200 text-stone-600'}`}>
-                    {v === 1 ? 'Solo 1' : `${v} meses`}
-                  </button>
-                ))}
-              </div>
             </div>
           )}
 
-          {/* GUARDAR */}
+          {/* Detalle y subcategoría - colapsables */}
+          <button
+            onClick={() => setShowOptional(!showOptional)}
+            className="w-full flex items-center justify-between px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-medium text-stone-600 hover:bg-stone-50 transition"
+          >
+            <span className="flex items-center gap-1.5">
+              <span className="text-stone-400">＋</span> Detalle y subcategoría (opcional)
+            </span>
+            <span className="text-stone-400">{showOptional ? '▲' : '▼'}</span>
+          </button>
+
+          {showOptional && (
+            <div className="space-y-3 -mt-2">
+              <input
+                type="text"
+                value={detalle}
+                onChange={e => setDetalle(e.target.value)}
+                placeholder="Detalle (ej: Pago de luz)"
+                className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:border-stone-900 outline-none"
+              />
+              <input
+                type="text"
+                value={subcategoria}
+                onChange={e => setSubcategoria(e.target.value)}
+                placeholder="Subcategoría (ej: Servicios)"
+                className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:border-stone-900 outline-none"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* FOOTER STICKY con botón guardar */}
+        <div className="px-5 py-3 border-t border-stone-200 bg-stone-50">
           <button
             onClick={submit}
-            className="w-full py-3.5 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-xl transition shadow-lg active:scale-[0.98]"
+            className="w-full py-3 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-xl transition shadow-lg active:scale-[0.98]"
           >
             {editando ? 'Actualizar' : 'Guardar registro'}
           </button>
@@ -1058,10 +1290,11 @@ function FormularioTx({ tx, catGasto, catIngreso, config, onGuardar, onCerrar })
 }
 
 // ============ CONFIG ============
-function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIngreso, onExport, totalTx }) {
+function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIngreso, onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus }) {
   const [showCats, setShowCats] = useState(null); // 'gasto' | 'ingreso' | null
   const [nuevaCat, setNuevaCat] = useState({ nombre: '', emoji: '📦', color: '#8D99AE' });
-  const [importing, setImporting] = useState(false);
+  const [tempScriptUrl, setTempScriptUrl] = useState(scriptUrl || '');
+  const [migrating, setMigrating] = useState(false);
 
   const agregarCat = () => {
     if (!nuevaCat.nombre.trim()) return;
@@ -1141,34 +1374,86 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
         </div>
       </Section>
 
+      {/* Conexión a Google Sheets */}
+      <Section titulo="Conexión a Google Sheets">
+        <p className="text-xs text-stone-500 mb-3">Tus datos se guardan directamente en tu Google Sheet. Pega aquí la URL del Apps Script que configuraste.</p>
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`w-2 h-2 rounded-full ${scriptUrl ? (syncStatus === 'error' ? 'bg-red-500' : syncStatus === 'syncing' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500') : 'bg-stone-300'}`} />
+          <span className="text-xs text-stone-600">
+            {!scriptUrl ? 'Sin conectar' : syncStatus === 'error' ? 'Error de conexión' : syncStatus === 'syncing' ? 'Sincronizando...' : 'Conectado ✓'}
+          </span>
+        </div>
+        <input
+          type="url"
+          value={tempScriptUrl}
+          onChange={e => setTempScriptUrl(e.target.value)}
+          placeholder="https://script.google.com/macros/s/.../exec"
+          className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs focus:border-stone-900 outline-none font-mono"
+        />
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <button
+            onClick={() => {
+              setScriptUrl(tempScriptUrl.trim());
+              setTimeout(() => location.reload(), 300);
+            }}
+            disabled={!tempScriptUrl.trim() || tempScriptUrl === scriptUrl}
+            className="py-2.5 bg-stone-900 text-white rounded-xl text-sm font-medium disabled:opacity-30"
+          >
+            Guardar URL
+          </button>
+          <button
+            onClick={onSincronizar}
+            disabled={!scriptUrl || syncStatus === 'syncing'}
+            className="py-2.5 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium disabled:opacity-30 hover:bg-stone-50"
+          >
+            🔄 Sincronizar
+          </button>
+        </div>
+      </Section>
+
       {/* Datos */}
       <Section titulo="Datos">
-        <p className="text-xs text-stone-500 mb-3">{totalTx} registros guardados</p>
+        <p className="text-xs text-stone-500 mb-3">{totalTx} registros en este dispositivo</p>
         <div className="grid grid-cols-2 gap-2">
           <button onClick={onExport} className="flex items-center justify-center gap-2 py-2.5 bg-white border border-stone-200 rounded-xl text-sm font-medium hover:bg-stone-50">
             <Download className="w-4 h-4" /> Exportar CSV
           </button>
           <button
-            onClick={() => {
-              if (confirm('🔄 Esto reemplazará TODOS los registros con los datos originales del Sheet (Sanat). ¿Continuar?')) {
-                {
-                  localStorage.setItem(STORAGE_KEYS.TRANSACCIONES, JSON.stringify(SEED_DATA));
-                  localStorage.setItem(STORAGE_KEYS.SEEDED, JSON.stringify(true));
-                  location.reload();
-                }
+            onClick={async () => {
+              if (!scriptUrl) {
+                alert('Primero configura la URL del Apps Script arriba ⬆️');
+                return;
+              }
+              if (!confirm(`🔄 Esto subirá los ${SEED_DATA.length} datos originales del Sheet (Sanat) y reemplazará TODO lo que hay en App_Data. ¿Continuar?`)) return;
+              try {
+                setMigrating(true);
+                await apiReplaceAll(scriptUrl, SEED_DATA);
+                alert('✅ Datos cargados. Recargando...');
+                location.reload();
+              } catch (e) {
+                alert('Error: ' + e.message);
+              } finally {
+                setMigrating(false);
               }
             }}
-            className="flex items-center justify-center gap-2 py-2.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-sm font-medium hover:bg-amber-100"
+            disabled={migrating}
+            className="flex items-center justify-center gap-2 py-2.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-sm font-medium hover:bg-amber-100 disabled:opacity-50"
           >
-            <Upload className="w-4 h-4" /> Recargar Sheet
+            <Upload className="w-4 h-4" /> {migrating ? 'Cargando...' : 'Cargar semilla'}
           </button>
         </div>
         <button
-          onClick={() => {
-            if (confirm('⚠️ Esto borrará TODOS los registros (incluso los del Sheet). ¿Continuar?')) {
-              localStorage.setItem(STORAGE_KEYS.TRANSACCIONES, JSON.stringify([]));
-              localStorage.setItem(STORAGE_KEYS.SEEDED, JSON.stringify(true));
+          onClick={async () => {
+            if (!scriptUrl) {
+              alert('Primero configura la URL del Apps Script arriba ⬆️');
+              return;
+            }
+            if (!confirm('⚠️ Esto borrará TODOS los registros del Sheet (App_Data) y del dispositivo. ¿Continuar?')) return;
+            try {
+              await apiReplaceAll(scriptUrl, []);
               location.reload();
+            } catch (e) {
+              alert('Error: ' + e.message);
             }
           }}
           className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm font-medium hover:bg-red-100"
@@ -1178,8 +1463,11 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
       </Section>
 
       <p className="text-center text-[11px] text-stone-400 pt-4">
-        Los datos se guardan localmente en este dispositivo.<br />
-        Exporta el CSV regularmente para sincronizar con tu Sheet.
+        {scriptUrl ? (
+          <>Tus datos viven en tu Google Sheet 🟢<br />Hoja "App_Data" — sincronizada automáticamente</>
+        ) : (
+          <>⚠️ Configura la URL del Apps Script arriba<br />para que tus datos se guarden en Sheets</>
+        )}
       </p>
 
       {/* MODAL CATEGORÍAS */}
