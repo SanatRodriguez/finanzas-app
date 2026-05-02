@@ -1207,40 +1207,50 @@ function FAB({ onQuick, onFull, D }) {
         <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
       )}
 
-      {/* Mini botones que aparecen al abrir */}
-      <div className={`fixed bottom-24 right-5 z-30 flex flex-col items-end gap-3 transition-all duration-200 ${open ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
-        {/* Registro completo */}
-        <div className="flex items-center gap-2">
-          <span className={`text-xs font-medium px-2.5 py-1 rounded-full shadow ${D.bgCard} ${D.text} border ${D.border}`}>
+      {/* Mini botones — flotan POR ENCIMA del botón principal */}
+      <div className={`fixed z-30 flex flex-col items-end gap-4 transition-all duration-250
+        ${open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}
+      `} style={{ bottom: '7.5rem', right: '1.25rem' }}>
+
+        {/* Registro completo — primero (más arriba) */}
+        <div className={`flex items-center gap-3 transition-all duration-200 ${open ? 'translate-y-0' : 'translate-y-6'}`}
+          style={{ transitionDelay: open ? '60ms' : '0ms' }}>
+          <span className={`text-xs font-semibold px-3 py-1.5 rounded-full shadow-md whitespace-nowrap ${D.bgCard} ${D.text} border ${D.border}`}>
             Registro completo
           </span>
           <button
             onClick={() => { setOpen(false); onFull(); }}
-            className="w-12 h-12 bg-stone-700 hover:bg-stone-600 text-white rounded-full shadow-xl flex items-center justify-center transition active:scale-95"
+            className="w-12 h-12 bg-stone-700 hover:bg-stone-600 text-white rounded-full shadow-xl flex items-center justify-center transition-all active:scale-95 flex-shrink-0"
           >
             <Plus className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Registro rápido */}
-        <div className="flex items-center gap-2">
-          <span className={`text-xs font-medium px-2.5 py-1 rounded-full shadow ${D.bgCard} ${D.text} border ${D.border}`}>
+        {/* Registro rápido — segundo (más cerca del principal) */}
+        <div className={`flex items-center gap-3 transition-all duration-200 ${open ? 'translate-y-0' : 'translate-y-6'}`}
+          style={{ transitionDelay: open ? '0ms' : '0ms' }}>
+          <span className={`text-xs font-semibold px-3 py-1.5 rounded-full shadow-md whitespace-nowrap ${D.bgCard} ${D.text} border ${D.border}`}>
             Registro rápido ⚡
           </span>
           <button
             onClick={() => { setOpen(false); onQuick(); }}
-            className="w-12 h-12 bg-amber-500 hover:bg-amber-400 text-white rounded-full shadow-xl flex items-center justify-center transition active:scale-95"
+            className="w-12 h-12 bg-amber-500 hover:bg-amber-400 text-white rounded-full shadow-xl flex items-center justify-center transition-all active:scale-95 flex-shrink-0"
           >
             <Zap className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* Botón principal */}
+      {/* Botón principal — siempre en bottom-24 right-5, z más alto para quedar encima del overlay */}
       <button
         onClick={() => setOpen(!open)}
-        className={`fixed bottom-24 right-5 z-30 w-14 h-14 text-white rounded-full shadow-2xl flex items-center justify-center transition-all duration-200 active:scale-95 ${open ? 'bg-stone-500 rotate-45' : 'bg-stone-900 hover:bg-stone-800'}`}
-        style={{ boxShadow: '0 10px 30px -5px rgba(0,0,0,0.4)' }}
+        className={`fixed z-30 w-14 h-14 text-white rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 active:scale-95 ${open ? 'bg-stone-500' : 'bg-stone-900 hover:bg-stone-800'}`}
+        style={{
+          bottom: '5.5rem',
+          right: '1.25rem',
+          boxShadow: '0 10px 30px -5px rgba(0,0,0,0.45)',
+          transform: open ? 'rotate(45deg)' : 'rotate(0deg)',
+        }}
       >
         <Plus className="w-6 h-6" />
       </button>
