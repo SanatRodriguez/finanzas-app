@@ -192,7 +192,14 @@ async function apiCall(scriptUrl, method, body) {
 
 async function apiList(scriptUrl) {
   const res = await apiCall(scriptUrl, 'GET', { action: 'list' });
-  return res.data || [];
+  const txs = res.data || [];
+  // Normalizar montos: reemplazar coma decimal por punto (Google Sheets en español usa coma)
+  return txs.map(tx => ({
+    ...tx,
+    monto: typeof tx.monto === 'string'
+      ? parseFloat(tx.monto.replace(',', '.')) || 0
+      : (Number(tx.monto) || 0),
+  }));
 }
 
 async function apiSave(scriptUrl, tx) {
@@ -218,6 +225,19 @@ async function apiUpdate(scriptUrl, id, changes) {
 
 async function apiReplaceAll(scriptUrl, txs) {
   return apiCall(scriptUrl, 'POST', { action: 'replaceAll', txs });
+}
+
+async function apiListCats(scriptUrl) {
+  const res = await apiCall(scriptUrl, 'GET', { action: 'listCats' });
+  return res.data || [];
+}
+
+async function apiSaveCat(scriptUrl, cat) {
+  return apiCall(scriptUrl, 'POST', { action: 'saveCat', cat });
+}
+
+async function apiDeleteCat(scriptUrl, id) {
+  return apiCall(scriptUrl, 'POST', { action: 'deleteCat', id });
 }
 
 // ============ COMPONENTE PRINCIPAL ============
@@ -249,15 +269,29 @@ export default function App() {
       setCatGasto(cg);
       setCatIngreso(ci);
       setScriptUrl(url);
-      setTransacciones(cache); // mostrar cache mientras carga del server
+      setTransacciones(cache);
 
-      // Si hay URL, traer desde el Sheet
       if (url) {
         try {
           setSyncStatus('syncing');
-          const remoteTxs = await apiList(url);
+          // Cargar transacciones y categorías en paralelo
+          const [remoteTxs, remoteCats] = await Promise.all([
+            apiList(url),
+            apiListCats(url).catch(() => null), // si falla cats, no bloquear
+          ]);
+
           setTransacciones(remoteTxs);
           saveLocal(STORAGE_KEYS.TRANSACCIONES_CACHE, remoteTxs);
+
+          if (remoteCats && remoteCats.length > 0) {
+            const gastos = remoteCats.filter(c => c.tipo === 'gasto')
+              .sort((a, b) => (a.orden || 99) - (b.orden || 99));
+            const ingresos = remoteCats.filter(c => c.tipo === 'ingreso')
+              .sort((a, b) => (a.orden || 99) - (b.orden || 99));
+            if (gastos.length > 0) { setCatGasto(gastos); saveLocal(STORAGE_KEYS.CATEGORIAS_GASTO, gastos); }
+            if (ingresos.length > 0) { setCatIngreso(ingresos); saveLocal(STORAGE_KEYS.CATEGORIAS_INGRESO, ingresos); }
+          }
+
           setSyncStatus('idle');
         } catch (e) {
           console.error('Error cargando desde Sheet:', e);
@@ -418,14 +452,62 @@ export default function App() {
     if (!scriptUrl) return;
     try {
       setSyncStatus('syncing');
-      const remoteTxs = await apiList(scriptUrl);
+      const [remoteTxs, remoteCats] = await Promise.all([
+        apiList(scriptUrl),
+        apiListCats(scriptUrl).catch(() => null),
+      ]);
       updateLocal(remoteTxs);
+
+      if (remoteCats && remoteCats.length > 0) {
+        const gastos = remoteCats.filter(c => c.tipo === 'gasto').sort((a, b) => (a.orden||99)-(b.orden||99));
+        const ingresos = remoteCats.filter(c => c.tipo === 'ingreso').sort((a, b) => (a.orden||99)-(b.orden||99));
+        if (gastos.length > 0) { setCatGasto(gastos); saveLocal(STORAGE_KEYS.CATEGORIAS_GASTO, gastos); }
+        if (ingresos.length > 0) { setCatIngreso(ingresos); saveLocal(STORAGE_KEYS.CATEGORIAS_INGRESO, ingresos); }
+      }
+
       setSyncStatus('idle');
       showToast('Sincronizado ✓');
     } catch (e) {
       console.error(e);
       setSyncStatus('error');
       showToast('Error al sincronizar', 'error');
+    }
+  };
+
+  // Guardar categoría en Sheet
+  const guardarCat = async (cat, tipo) => {
+    const catConTipo = { ...cat, tipo };
+    if (tipo === 'gasto') {
+      const nuevas = catGasto.find(c => c.id === cat.id)
+        ? catGasto.map(c => c.id === cat.id ? catConTipo : c)
+        : [...catGasto, catConTipo];
+      setCatGasto(nuevas);
+      saveLocal(STORAGE_KEYS.CATEGORIAS_GASTO, nuevas);
+    } else {
+      const nuevas = catIngreso.find(c => c.id === cat.id)
+        ? catIngreso.map(c => c.id === cat.id ? catConTipo : c)
+        : [...catIngreso, catConTipo];
+      setCatIngreso(nuevas);
+      saveLocal(STORAGE_KEYS.CATEGORIAS_INGRESO, nuevas);
+    }
+    if (scriptUrl) {
+      try { await apiSaveCat(scriptUrl, catConTipo); } catch(e) { console.error(e); }
+    }
+    showToast('Categoría guardada ✓');
+  };
+
+  const eliminarCat = async (id, tipo) => {
+    if (tipo === 'gasto') {
+      const nuevas = catGasto.filter(c => c.id !== id);
+      setCatGasto(nuevas);
+      saveLocal(STORAGE_KEYS.CATEGORIAS_GASTO, nuevas);
+    } else {
+      const nuevas = catIngreso.filter(c => c.id !== id);
+      setCatIngreso(nuevas);
+      saveLocal(STORAGE_KEYS.CATEGORIAS_INGRESO, nuevas);
+    }
+    if (scriptUrl) {
+      try { await apiDeleteCat(scriptUrl, id); } catch(e) { console.error(e); }
     }
   };
 
@@ -603,8 +685,9 @@ export default function App() {
         )}
         {vista === 'config' && (
           <Config config={config} setConfig={(c) => { setConfig(c); saveLocal(STORAGE_KEYS.CONFIG, c); showToast('Guardado ✓'); }}
-            catGasto={catGasto} setCatGasto={(c) => { setCatGasto(c); saveLocal(STORAGE_KEYS.CATEGORIAS_GASTO, c); }}
-            catIngreso={catIngreso} setCatIngreso={(c) => { setCatIngreso(c); saveLocal(STORAGE_KEYS.CATEGORIAS_INGRESO, c); }}
+            catGasto={catGasto} catIngreso={catIngreso}
+            onGuardarCat={guardarCat}
+            onEliminarCat={eliminarCat}
             onExport={exportarCSV}
             totalTx={transacciones.length}
             scriptUrl={scriptUrl}
@@ -684,7 +767,14 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, onMarcarR
       .slice(0, 5);
   }, [txDelMes]);
 
-  const findCat = (tipo, id) => (tipo === 'gasto' ? catGasto : catIngreso).find(c => c.id === id) || { emoji: '📦', nombre: id, color: '#888' };
+  const findCat = (tipo, id) => {
+    const cats = tipo === 'gasto' ? catGasto : catIngreso;
+    const found = cats.find(c => c.id === id);
+    if (found) return found;
+    // Fallback: convertir id a nombre legible (fijo_agua -> Fijo Agua)
+    const nombre = (id || 'Otros').replace(/_/g, ' ').replace(/\w/g, l => l.toUpperCase());
+    return { emoji: '📦', nombre, color: '#8D99AE' };
+  };
 
   const balanceColor = stats.balanceReal >= 0 ? 'text-emerald-700' : 'text-red-600';
   const ejecucionColor = stats.ejecucion <= 100 ? 'text-emerald-700' : 'text-red-600';
@@ -872,7 +962,13 @@ function ItemTx({ tx, cat, moneda, onMarcarReal, onEditar, onEliminar, D }) {
 // ============ REGISTRO ============
 function Registro({ transacciones, catGasto, catIngreso, config, D, onMarcarReal, onEditar, onEliminar }) {
   const [filtro, setFiltro] = useState('todos'); // todos | proyectado | real | gasto | ingreso
-  const findCat = (tipo, id) => (tipo === 'gasto' ? catGasto : catIngreso).find(c => c.id === id) || { emoji: '📦', nombre: id, color: '#888' };
+  const findCat = (tipo, id) => {
+    const cats = tipo === 'gasto' ? catGasto : catIngreso;
+    const found = cats.find(c => c.id === id);
+    if (found) return found;
+    const nombre = (id || 'Otros').replace(/_/g, ' ').replace(/\w/g, l => l.toUpperCase());
+    return { emoji: '📦', nombre, color: '#8D99AE' };
+  };
 
   const filtradas = useMemo(() => {
     let f = [...transacciones];
@@ -1349,33 +1445,44 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
 }
 
 // ============ CONFIG ============
-function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIngreso, onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark }) {
+function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onEliminarCat,
+  onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark }) {
+
   const [showCats, setShowCats] = useState(null); // 'gasto' | 'ingreso' | null
+  const [editandoCat, setEditandoCat] = useState(null); // null | 'new' | cat object
   const [nuevaCat, setNuevaCat] = useState({ nombre: '', emoji: '📦', color: '#8D99AE' });
   const [tempScriptUrl, setTempScriptUrl] = useState(scriptUrl || '');
   const [migrating, setMigrating] = useState(false);
+  const [syncingCats, setSyncingCats] = useState(false);
 
-  const agregarCat = () => {
+  const cats = showCats === 'gasto' ? catGasto : catIngreso;
+
+  const handleGuardarCat = () => {
     if (!nuevaCat.nombre.trim()) return;
-    const nueva = { ...nuevaCat, id: nuevaCat.nombre.toLowerCase().replace(/\s+/g, '_') };
-    if (showCats === 'gasto') setCatGasto([...catGasto, nueva]);
-    else setCatIngreso([...catIngreso, nueva]);
+    const id = nuevaCat.id || nuevaCat.nombre.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+    onGuardarCat({ ...nuevaCat, id }, showCats);
     setNuevaCat({ nombre: '', emoji: '📦', color: '#8D99AE' });
+    setEditandoCat(null);
   };
 
-  const eliminarCat = (id) => {
-    if (!confirm('¿Eliminar esta categoría?')) return;
-    if (showCats === 'gasto') setCatGasto(catGasto.filter(c => c.id !== id));
-    else setCatIngreso(catIngreso.filter(c => c.id !== id));
+  const handleEditarCat = (cat) => {
+    setEditandoCat(cat);
+    setNuevaCat({ ...cat });
+  };
+
+  const handleEliminarCat = (id) => {
+    if (!confirm('¿Eliminar esta categoría? Los registros existentes no se borran.')) return;
+    onEliminarCat(id, showCats);
   };
 
   return (
     <div className="space-y-4 animate-fade-in">
+
       {/* Persona */}
       <Section D={D} titulo="Tu nombre">
-        <input
-          type="text"
-          value={config.persona}
+        <input type="text" value={config.persona}
           onChange={e => setConfig({ ...config, persona: e.target.value })}
           className={`w-full px-3.5 py-2.5 rounded-xl text-sm outline-none border ${D.bgInput} ${D.border} ${D.text}`}
         />
@@ -1383,26 +1490,20 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
 
       {/* Inicio de mes */}
       <Section D={D} titulo="Día de inicio del período">
-        <p className="text-xs text-stone-500 mb-2">El día que recibes tu pago. El período va de este día al día anterior del siguiente mes.</p>
+        <p className={`text-xs mb-2 ${D.textMuted}`}>El día que recibes tu pago.</p>
         <div className="flex items-center gap-2">
-          <input
-            type="number"
-            min="1"
-            max="28"
-            value={config.diaInicioMes}
+          <input type="number" min="1" max="28" value={config.diaInicioMes}
             onChange={e => setConfig({ ...config, diaInicioMes: parseInt(e.target.value) || 1 })}
-            className="w-20 px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm text-center font-serif text-lg focus:border-stone-900 outline-none"
+            className={`w-20 px-3 py-2 rounded-xl text-sm text-center font-serif text-lg outline-none border ${D.bgInput} ${D.border} ${D.text}`}
           />
-          <span className="text-sm text-stone-600">de cada mes</span>
+          <span className={`text-sm ${D.textSub}`}>de cada mes</span>
         </div>
         <label className="flex items-center gap-2 mt-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={config.ajustarFinDeSemana}
+          <input type="checkbox" checked={config.ajustarFinDeSemana}
             onChange={e => setConfig({ ...config, ajustarFinDeSemana: e.target.checked })}
             className="w-4 h-4"
           />
-          <span className="text-sm text-stone-700">Si cae fin de semana, ajustar al viernes</span>
+          <span className={`text-sm ${D.textSub}`}>Si cae fin de semana, ajustar al viernes</span>
         </label>
       </Section>
 
@@ -1410,13 +1511,9 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
       <Section D={D} titulo="Moneda">
         <div className="grid grid-cols-4 gap-2">
           {['S/.', '$', '€', '£'].map(m => (
-            <button
-              key={m}
-              onClick={() => setConfig({ ...config, moneda: m })}
-              className={`py-2 rounded-xl border-2 font-serif text-lg ${config.moneda === m ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 bg-white'}`}
-            >
-              {m}
-            </button>
+            <button key={m} onClick={() => setConfig({ ...config, moneda: m })}
+              className={`py-2 rounded-xl border-2 font-serif text-lg ${config.moneda === m ? 'border-stone-900 bg-stone-900 text-white' : D.border + ' ' + D.bgCard}`}
+            >{m}</button>
           ))}
         </div>
       </Section>
@@ -1424,18 +1521,11 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
       {/* Apariencia */}
       <Section D={D} titulo="Apariencia">
         <div className="space-y-4">
-          {/* Tema */}
           <div>
             <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>Tema</p>
             <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: 'claro', emoji: '☀️', label: 'Claro' },
-                { id: 'oscuro', emoji: '🌙', label: 'Oscuro' },
-                { id: 'auto',   emoji: '⚙️', label: 'Sistema' },
-              ].map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setConfig({ ...config, tema: t.id })}
+              {[{ id: 'claro', emoji: '☀️', label: 'Claro' }, { id: 'oscuro', emoji: '🌙', label: 'Oscuro' }, { id: 'auto', emoji: '⚙️', label: 'Sistema' }].map(t => (
+                <button key={t.id} onClick={() => setConfig({ ...config, tema: t.id })}
                   className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition ${config.tema === t.id ? 'border-stone-900 ' + D.bgMuted : D.border + ' ' + D.bgCard}`}
                 >
                   <span className="text-xl">{t.emoji}</span>
@@ -1444,15 +1534,12 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
               ))}
             </div>
           </div>
-          {/* Acento */}
           <div>
             <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>Color de acento</p>
-            <div className="flex gap-3 flex-wrap">
+            <div className="flex gap-1.5 flex-wrap">
               {Object.entries(ACENTOS).map(([id, a]) => (
-                <button
-                  key={id}
-                  onClick={() => setConfig({ ...config, acento: id })}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-full border-2 transition text-xs font-medium ${config.acento === id ? 'border-stone-900' : D.border} ${D.bgCard}`}
+                <button key={id} onClick={() => setConfig({ ...config, acento: id })}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border-2 transition text-xs font-medium ${config.acento === id ? 'border-stone-900' : D.border} ${D.bgCard}`}
                 >
                   <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: a.dot }} />
                   <span className={D.textSub}>{a.label}</span>
@@ -1466,48 +1553,42 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
 
       {/* Categorías */}
       <Section D={D} titulo="Categorías">
+        <p className={`text-xs mb-3 ${D.textMuted}`}>
+          Se sincronizan con la hoja <strong>App_Config</strong> de tu Sheet.
+        </p>
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={() => setShowCats('gasto')} className="p-3 bg-white border border-stone-200 rounded-xl text-sm font-medium text-left hover:bg-stone-50">
-            💸 Gastos <span className="text-stone-500">({catGasto.length})</span>
+          <button onClick={() => { setShowCats('gasto'); setEditandoCat(null); }}
+            className={`p-3 rounded-xl border text-sm font-medium text-left ${D.bgCard} ${D.border} ${D.text}`}>
+            💸 Gastos <span className={D.textMuted}>({catGasto.length})</span>
           </button>
-          <button onClick={() => setShowCats('ingreso')} className="p-3 bg-white border border-stone-200 rounded-xl text-sm font-medium text-left hover:bg-stone-50">
-            💰 Ingresos <span className="text-stone-500">({catIngreso.length})</span>
+          <button onClick={() => { setShowCats('ingreso'); setEditandoCat(null); }}
+            className={`p-3 rounded-xl border text-sm font-medium text-left ${D.bgCard} ${D.border} ${D.text}`}>
+            💰 Ingresos <span className={D.textMuted}>({catIngreso.length})</span>
           </button>
         </div>
       </Section>
 
       {/* Conexión a Google Sheets */}
       <Section D={D} titulo="Conexión a Google Sheets">
-        <p className="text-xs text-stone-500 mb-3">Tus datos se guardan directamente en tu Google Sheet. Pega aquí la URL del Apps Script que configuraste.</p>
+        <p className={`text-xs mb-3 ${D.textMuted}`}>Tus datos y categorías se guardan en tu Sheet.</p>
         <div className="flex items-center gap-2 mb-2">
           <div className={`w-2 h-2 rounded-full ${scriptUrl ? (syncStatus === 'error' ? 'bg-red-500' : syncStatus === 'syncing' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500') : 'bg-stone-300'}`} />
-          <span className="text-xs text-stone-600">
+          <span className={`text-xs ${D.textSub}`}>
             {!scriptUrl ? 'Sin conectar' : syncStatus === 'error' ? 'Error de conexión' : syncStatus === 'syncing' ? 'Sincronizando...' : 'Conectado ✓'}
           </span>
         </div>
-        <input
-          type="url"
-          value={tempScriptUrl}
-          onChange={e => setTempScriptUrl(e.target.value)}
+        <input type="url" value={tempScriptUrl} onChange={e => setTempScriptUrl(e.target.value)}
           placeholder="https://script.google.com/macros/s/.../exec"
-          className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs focus:border-stone-900 outline-none font-mono"
+          className={`w-full px-3 py-2 rounded-xl text-xs outline-none border font-mono ${D.bgInput} ${D.border} ${D.text}`}
         />
         <div className="grid grid-cols-2 gap-2 mt-2">
-          <button
-            onClick={() => {
-              setScriptUrl(tempScriptUrl.trim());
-              setTimeout(() => location.reload(), 300);
-            }}
+          <button onClick={() => { setScriptUrl(tempScriptUrl.trim()); setTimeout(() => location.reload(), 300); }}
             disabled={!tempScriptUrl.trim() || tempScriptUrl === scriptUrl}
-            className="py-2.5 bg-stone-900 text-white rounded-xl text-sm font-medium disabled:opacity-30"
-          >
+            className="py-2.5 bg-stone-900 text-white rounded-xl text-sm font-medium disabled:opacity-30">
             Guardar URL
           </button>
-          <button
-            onClick={onSincronizar}
-            disabled={!scriptUrl || syncStatus === 'syncing'}
-            className="py-2.5 bg-white border border-stone-200 text-stone-700 rounded-xl text-sm font-medium disabled:opacity-30 hover:bg-stone-50"
-          >
+          <button onClick={onSincronizar} disabled={!scriptUrl || syncStatus === 'syncing'}
+            className={`py-2.5 rounded-xl text-sm font-medium disabled:opacity-30 border ${D.bgCard} ${D.border} ${D.text}`}>
             🔄 Sincronizar
           </button>
         </div>
@@ -1515,122 +1596,116 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
 
       {/* Datos */}
       <Section D={D} titulo="Datos">
-        <p className="text-xs text-stone-500 mb-3">{totalTx} registros en este dispositivo</p>
+        <p className={`text-xs mb-3 ${D.textMuted}`}>{totalTx} registros guardados</p>
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={onExport} className="flex items-center justify-center gap-2 py-2.5 bg-white border border-stone-200 rounded-xl text-sm font-medium hover:bg-stone-50">
+          <button onClick={onExport}
+            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border ${D.bgCard} ${D.border} ${D.text}`}>
             <Download className="w-4 h-4" /> Exportar CSV
           </button>
-          <button
-            onClick={async () => {
-              if (!scriptUrl) {
-                alert('Primero configura la URL del Apps Script arriba ⬆️');
-                return;
-              }
-              if (!confirm(`🔄 Esto subirá los ${SEED_DATA.length} datos originales del Sheet (Sanat) y reemplazará TODO lo que hay en App_Data. ¿Continuar?`)) return;
-              try {
-                setMigrating(true);
-                await apiReplaceAll(scriptUrl, SEED_DATA);
-                alert('✅ Datos cargados. Recargando...');
-                location.reload();
-              } catch (e) {
-                alert('Error: ' + e.message);
-              } finally {
-                setMigrating(false);
-              }
-            }}
-            disabled={migrating}
-            className="flex items-center justify-center gap-2 py-2.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-sm font-medium hover:bg-amber-100 disabled:opacity-50"
-          >
+          <button onClick={async () => {
+            if (!scriptUrl) { alert('Primero configura la URL del Apps Script'); return; }
+            if (!confirm(`🔄 Subir ${SEED_DATA.length} datos originales de Sanat a App_Data. ¿Continuar?`)) return;
+            try { setMigrating(true); await apiReplaceAll(scriptUrl, SEED_DATA); alert('✅ Listo'); location.reload(); }
+            catch (e) { alert('Error: ' + e.message); }
+            finally { setMigrating(false); }
+          }} disabled={migrating}
+            className="flex items-center justify-center gap-2 py-2.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-sm font-medium hover:bg-amber-100 disabled:opacity-50">
             <Upload className="w-4 h-4" /> {migrating ? 'Cargando...' : 'Cargar semilla'}
           </button>
         </div>
-        <button
-          onClick={async () => {
-            if (!scriptUrl) {
-              alert('Primero configura la URL del Apps Script arriba ⬆️');
-              return;
-            }
-            if (!confirm('⚠️ Esto borrará TODOS los registros del Sheet (App_Data) y del dispositivo. ¿Continuar?')) return;
-            try {
-              await apiReplaceAll(scriptUrl, []);
-              location.reload();
-            } catch (e) {
-              alert('Error: ' + e.message);
-            }
-          }}
-          className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm font-medium hover:bg-red-100"
-        >
+        <button onClick={async () => {
+          if (!scriptUrl) { alert('Primero configura la URL del Apps Script'); return; }
+          if (!confirm('⚠️ Borrará TODOS los registros. ¿Continuar?')) return;
+          try { await apiReplaceAll(scriptUrl, []); location.reload(); }
+          catch (e) { alert('Error: ' + e.message); }
+        }} className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm font-medium hover:bg-red-100">
           <Trash2 className="w-4 h-4" /> Borrar todo
         </button>
       </Section>
 
-      <p className="text-center text-[11px] text-stone-400 pt-4">
-        {scriptUrl ? (
-          <>Tus datos viven en tu Google Sheet 🟢<br />Hoja "App_Data" — sincronizada automáticamente</>
-        ) : (
-          <>⚠️ Configura la URL del Apps Script arriba<br />para que tus datos se guarden en Sheets</>
-        )}
+      <p className={`text-center text-[11px] pt-2 ${D.textMuted}`}>
+        {scriptUrl ? <>Datos en tu Google Sheet 🟢<br /><span className="opacity-60">App_Data · App_Config</span></> : <>⚠️ Configura la URL del Apps Script<br />para guardar datos en Sheets</>}
       </p>
 
-      {/* MODAL CATEGORÍAS */}
+      {/* ===== MODAL CATEGORÍAS ===== */}
       {showCats && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-stone-50 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[88vh] overflow-y-auto animate-slide-up shadow-2xl">
-            <div className="sticky top-0 bg-stone-50 z-10 px-5 pt-4 pb-3 border-b border-stone-200 flex items-center justify-between">
-              <h2 className="font-serif text-xl font-semibold">Categorías de {showCats === 'gasto' ? 'Gasto' : 'Ingreso'}</h2>
-              <button onClick={() => setShowCats(null)} className="p-1.5 hover:bg-stone-200 rounded-full">
-                <X className="w-5 h-5" />
+        <div className="fixed inset-0 z-40 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className={`w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col animate-slide-up shadow-2xl ${D.bg}`}>
+
+            {/* Header del modal */}
+            <div className={`px-5 pt-4 pb-3 border-b ${D.bgMuted} ${D.border} rounded-t-3xl flex items-center justify-between`}>
+              <div>
+                <h2 className={`font-serif text-lg font-semibold ${D.text}`}>
+                  {showCats === 'gasto' ? '💸 Gastos' : '💰 Ingresos'}
+                </h2>
+                <p className={`text-[11px] ${D.textMuted}`}>{cats.length} categorías · sincroniza con App_Config</p>
+              </div>
+              <button onClick={() => { setShowCats(null); setEditandoCat(null); }}
+                className={`p-1.5 rounded-full ${D.bgCard}`}>
+                <X className={`w-5 h-5 ${D.text}`} />
               </button>
             </div>
-            <div className="p-5 space-y-4">
-              {/* Lista */}
-              <div className="space-y-2">
-                {(showCats === 'gasto' ? catGasto : catIngreso).map(c => (
-                  <div key={c.id} className="bg-white rounded-xl border border-stone-200 p-3 flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg" style={{ backgroundColor: c.color + '22' }}>
-                      {c.emoji}
-                    </div>
-                    <span className="flex-1 text-sm font-medium">{c.nombre}</span>
-                    <button onClick={() => eliminarCat(c.id)} className="text-red-500 p-1.5 hover:bg-red-50 rounded">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+
+            {/* Lista scrollable */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
+              {cats.map(c => (
+                <div key={c.id} className={`rounded-xl border p-3 flex items-center gap-3 ${D.bgCard} ${D.border}`}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+                    style={{ backgroundColor: c.color + '22' }}>
+                    {c.emoji}
                   </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-medium text-sm ${D.text}`}>{c.nombre}</p>
+                    <p className={`text-[10px] ${D.textMuted}`}>{c.id}</p>
+                  </div>
+                  <button onClick={() => handleEditarCat(c)}
+                    className={`text-xs px-2.5 py-1.5 rounded-lg border ${D.bgMuted} ${D.border} ${D.textSub}`}>
+                    Editar
+                  </button>
+                  <button onClick={() => handleEliminarCat(c.id)}
+                    className="text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-500 border border-red-200">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer: nueva/editar categoría */}
+            <div className={`border-t px-5 py-4 ${D.bgMuted} ${D.border}`}>
+              <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>
+                {editandoCat && editandoCat.id ? 'Editar categoría' : 'Nueva categoría'}
+              </p>
+              <div className="flex gap-2 mb-2">
+                <input type="text" value={nuevaCat.emoji}
+                  onChange={e => setNuevaCat({ ...nuevaCat, emoji: e.target.value })}
+                  placeholder="🎯" maxLength={2}
+                  className={`w-12 px-2 py-2 border rounded-lg text-center text-xl ${D.bgInput} ${D.border} ${D.text}`}
+                />
+                <input type="text" value={nuevaCat.nombre}
+                  onChange={e => setNuevaCat({ ...nuevaCat, nombre: e.target.value })}
+                  placeholder="Nombre de la categoría"
+                  className={`flex-1 px-3 py-2 border rounded-lg text-sm ${D.bgInput} ${D.border} ${D.text}`}
+                />
+              </div>
+              {/* Colores */}
+              <div className="flex gap-1.5 mb-3 flex-wrap">
+                {['#E76F51','#F4A261','#E9C46A','#2A9D8F','#264653','#8338EC','#FF006E','#3A86FF','#06D6A0','#9D4EDD','#EF233C','#FFD60A'].map(col => (
+                  <button key={col} onClick={() => setNuevaCat({ ...nuevaCat, color: col })}
+                    className={`w-7 h-7 rounded-full transition ${nuevaCat.color === col ? 'ring-2 ring-offset-2 ring-stone-900' : ''}`}
+                    style={{ backgroundColor: col }} />
                 ))}
               </div>
-
-              {/* Agregar */}
-              <div className="bg-white rounded-xl border border-dashed border-stone-300 p-4">
-                <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">Nueva categoría</p>
-                <div className="flex gap-2 mb-2">
-                  <input
-                    type="text"
-                    value={nuevaCat.emoji}
-                    onChange={e => setNuevaCat({ ...nuevaCat, emoji: e.target.value })}
-                    placeholder="🎯"
-                    className="w-14 px-2 py-2 border border-stone-200 rounded-lg text-center text-xl"
-                    maxLength={2}
-                  />
-                  <input
-                    type="text"
-                    value={nuevaCat.nombre}
-                    onChange={e => setNuevaCat({ ...nuevaCat, nombre: e.target.value })}
-                    placeholder="Nombre de categoría"
-                    className="flex-1 px-3 py-2 border border-stone-200 rounded-lg text-sm"
-                  />
-                </div>
-                <div className="flex gap-1.5 mb-2 flex-wrap">
-                  {['#E76F51', '#F4A261', '#E9C46A', '#2A9D8F', '#264653', '#8338EC', '#FF006E', '#3A86FF', '#06D6A0', '#9D4EDD'].map(col => (
-                    <button
-                      key={col}
-                      onClick={() => setNuevaCat({ ...nuevaCat, color: col })}
-                      className={`w-7 h-7 rounded-full transition ${nuevaCat.color === col ? 'ring-2 ring-offset-2 ring-stone-900' : ''}`}
-                      style={{ backgroundColor: col }}
-                    />
-                  ))}
-                </div>
-                <button onClick={agregarCat} disabled={!nuevaCat.nombre.trim()} className="w-full py-2 bg-stone-900 text-white rounded-lg text-sm font-medium disabled:opacity-30">
-                  Agregar
+              <div className="flex gap-2">
+                <button onClick={handleGuardarCat} disabled={!nuevaCat.nombre.trim()}
+                  className="flex-1 py-2.5 bg-stone-900 text-white rounded-xl text-sm font-medium disabled:opacity-30">
+                  {editandoCat && editandoCat.id ? 'Actualizar' : '+ Agregar'}
                 </button>
+                {editandoCat && (
+                  <button onClick={() => { setEditandoCat(null); setNuevaCat({ nombre: '', emoji: '📦', color: '#8D99AE' }); }}
+                    className={`px-4 py-2.5 rounded-xl text-sm border ${D.bgCard} ${D.border} ${D.text}`}>
+                    Cancelar
+                  </button>
+                )}
               </div>
             </div>
           </div>
