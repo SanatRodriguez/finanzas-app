@@ -517,8 +517,8 @@ export default function App() {
   };
 
   return (
-    <div className={\`min-h-screen \${D.bg} pb-24 transition-colors duration-300\`} style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
-      <style>{\`
+    <div className={`min-h-screen ${D.bg} pb-24 transition-colors duration-300`} style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+      <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800;9..144,900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
         .font-serif { font-family: 'Fraunces', Georgia, serif; font-feature-settings: 'ss01' on; }
         .font-sans { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
@@ -533,8 +533,9 @@ export default function App() {
         .stagger > *:nth-child(3) { animation-delay: 0.15s; }
         .stagger > *:nth-child(4) { animation-delay: 0.2s; }
         .stagger > *:nth-child(5) { animation-delay: 0.25s; }
-        input[type='date']::-webkit-calendar-picker-indicator { filter: \${isDark ? 'invert(1)' : 'none'}; }
-      \`}</style>
+        .dark-date::-webkit-calendar-picker-indicator { filter: invert(1); }
+      `}</style>
+      {isDark && <style>{'.date-input::-webkit-calendar-picker-indicator { filter: invert(1); }'}</style>}
 
       {/* ========= HEADER ========= */}
       <header className={`sticky top-0 z-30 border-b ${D.glass} ${D.border}`}>
@@ -902,7 +903,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, onMarcarReal
           <button
             key={f.id}
             onClick={() => setFiltro(f.id)}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition ${filtro === f.id ? 'bg-stone-900 text-white' : `${D.bgCard} border ${D.border} ${D.textSub} hover:opacity-80`}`}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition ${filtro === f.id ? 'bg-stone-900 text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub + ' hover:opacity-80'}`}
           >
             {f.label}
           </button>
@@ -1160,13 +1161,13 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
           <div className={`grid grid-cols-2 gap-1 p-1 rounded-xl mb-4 ${D.bgMuted}`}>
             <button
               onClick={() => { setTipo('gasto'); setCategoria(''); setShowAllCats(false); }}
-              className={`py-1.5 rounded-lg text-xs font-medium transition ${tipo === 'gasto' ? `${D.bgCard} shadow-sm ${D.text}` : D.textMuted}`}
+              className={`py-1.5 rounded-lg text-xs font-medium transition ${tipo === 'gasto' ? D.bgCard + ' shadow-sm ' + D.text : D.textMuted}`}
             >
               💸 Gasto
             </button>
             <button
               onClick={() => { setTipo('ingreso'); setCategoria(''); setShowAllCats(false); }}
-              className={`py-1.5 rounded-lg text-xs font-medium transition ${tipo === 'ingreso' ? `${D.bgCard} shadow-sm ${D.text}` : D.textMuted}`}
+              className={`py-1.5 rounded-lg text-xs font-medium transition ${tipo === 'ingreso' ? D.bgCard + ' shadow-sm ' + D.text : D.textMuted}`}
             >
               💰 Ingreso
             </button>
@@ -1435,7 +1436,7 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
                 <button
                   key={t.id}
                   onClick={() => setConfig({ ...config, tema: t.id })}
-                  className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition ${config.tema === t.id ? `border-stone-900 ${D.bgMuted}` : `${D.border} ${D.bgCard}`}`}
+                  className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition ${config.tema === t.id ? 'border-stone-900 ' + D.bgMuted : D.border + ' ' + D.bgCard}`}
                 >
                   <span className="text-xl">{t.emoji}</span>
                   <span className={`text-[11px] font-medium ${D.textSub}`}>{t.label}</span>
