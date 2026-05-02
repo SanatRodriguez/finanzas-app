@@ -810,21 +810,21 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, onMarcarR
             </button>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className={`font-serif font-semibold tracking-tight transition-all duration-200 ${hidden ? 'text-3xl blur-[3px] select-none' : 'text-5xl'}`}>
+            <span className={`font-serif font-semibold tracking-tight transition-all duration-200 ${hidden ? 'text-3xl' : 'text-5xl'}`}>
               {M(stats.balanceReal, config.moneda)}
             </span>
           </div>
           <div className="mt-4 flex items-center gap-4 text-sm">
             <div>
               <span className="text-stone-400 text-xs">Proyectado</span>
-              <div className={`font-medium transition-all ${hidden ? 'blur-[3px] select-none' : ''}`}>
+              <div className={`font-medium `}>
                 {M(stats.balanceProy, config.moneda)}
               </div>
             </div>
             <div className="h-8 w-px bg-stone-700" />
             <div>
               <span className="text-stone-400 text-xs">Diferencia</span>
-              <div className={`font-medium transition-all ${hidden ? 'blur-[3px] select-none' : (stats.balanceReal - stats.balanceProy >= 0 ? 'text-emerald-400' : 'text-amber-400')}`}>
+              <div className={`font-medium transition-all ${hidden ? '' : (stats.balanceReal - stats.balanceProy >= 0 ? 'text-emerald-400' : 'text-amber-400')}`}>
                 {hidden ? `${config.moneda} ••••` : `${stats.balanceReal - stats.balanceProy >= 0 ? '+' : ''}${formatMonto(stats.balanceReal - stats.balanceProy, config.moneda)}`}
               </div>
             </div>
@@ -859,9 +859,9 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, onMarcarR
         </div>
         <p className={`text-xs mt-2 ${D.textMuted}`}>
           Has gastado{' '}
-          <span className={hidden ? 'blur-[3px] select-none' : ''}>{M(stats.gastoReal, config.moneda)}</span>
+          <span >{M(stats.gastoReal, config.moneda)}</span>
           {' '}de{' '}
-          <span className={hidden ? 'blur-[3px] select-none' : ''}>{M(stats.gastoProy, config.moneda)}</span>
+          <span >{M(stats.gastoProy, config.moneda)}</span>
           {' '}presupuestados
         </p>
       </div>
@@ -904,11 +904,11 @@ function CardMetric({ icon, label, real, proy, accent, moneda, D, hidden }) {
         </div>
         <span className={`text-[10px] uppercase tracking-widest font-medium ${D.textMuted}`}>{label}</span>
       </div>
-      <div className={`font-serif text-2xl font-semibold tracking-tight transition-all ${hidden ? "blur-[3px] select-none" : ""} ${D.text}`}>
+      <div className={`font-serif text-2xl font-semibold tracking-tight  ${D.text}`}>
         {hidden ? `${moneda} ••••` : formatMonto(real, moneda)}
       </div>
       <div className={`mt-2 text-[11px] ${D.textMuted}`}>
-        de <span className={hidden ? "blur-[3px] select-none" : ""}>{hidden ? `${moneda} ••••` : formatMonto(proy, moneda)}</span> <span className={D.textMuted}>proyectado</span>
+        de <span >{hidden ? `${moneda} ••••` : formatMonto(proy, moneda)}</span> <span className={D.textMuted}>proyectado</span>
       </div>
     </div>
   );
