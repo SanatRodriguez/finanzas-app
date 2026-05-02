@@ -250,6 +250,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [fechaRef, setFechaRef] = useState(new Date());
   const [showForm, setShowForm] = useState(false);
+  const [showQuick, setShowQuick] = useState(false);
   const [editTx, setEditTx] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -701,15 +702,13 @@ export default function App() {
         )}
       </main>
 
-      {/* ========= FAB ========= */}
+      {/* ========= FAB con registro rápido ========= */}
       {vista !== 'config' && (
-        <button
-          onClick={() => { setEditTx(null); setShowForm(true); }}
-          className="fixed bottom-24 right-5 z-20 w-14 h-14 bg-stone-900 hover:bg-stone-800 text-white rounded-full shadow-2xl flex items-center justify-center transition transform active:scale-95"
-          style={{ boxShadow: '0 10px 30px -5px rgba(0,0,0,0.4)' }}
-        >
-          <Plus className="w-6 h-6" />
-        </button>
+        <FAB
+          onQuick={() => setShowQuick(true)}
+          onFull={() => { setEditTx(null); setShowForm(true); }}
+          D={D}
+        />
       )}
 
       {/* ========= BOTTOM NAV ========= */}
@@ -732,6 +731,19 @@ export default function App() {
           ))}
         </div>
       </nav>
+
+      {/* ========= QUICK ENTRY ========= */}
+      {showQuick && (
+        <QuickEntry
+          catGasto={catGasto}
+          config={config}
+          transacciones={transacciones}
+          onGuardar={(tx) => { guardarTx(tx); setShowQuick(false); }}
+          onCerrar={() => setShowQuick(false)}
+          onCompleto={() => { setShowQuick(false); setEditTx(null); setShowForm(true); }}
+          D={D}
+        />
+      )}
 
       {/* ========= FORM MODAL ========= */}
       {showForm && (
@@ -1180,6 +1192,287 @@ function CategoriaCard({ cat, moneda, D }) {
             : `Excediste por ${formatMonto(Math.abs(cat.diff), moneda)}`}
         </p>
       )}
+    </div>
+  );
+}
+
+// ============ FAB ============
+function FAB({ onQuick, onFull, D }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      {/* Overlay para cerrar */}
+      {open && (
+        <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+      )}
+
+      {/* Mini botones que aparecen al abrir */}
+      <div className={`fixed bottom-24 right-5 z-30 flex flex-col items-end gap-3 transition-all duration-200 ${open ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
+        {/* Registro completo */}
+        <div className="flex items-center gap-2">
+          <span className={`text-xs font-medium px-2.5 py-1 rounded-full shadow ${D.bgCard} ${D.text} border ${D.border}`}>
+            Registro completo
+          </span>
+          <button
+            onClick={() => { setOpen(false); onFull(); }}
+            className="w-12 h-12 bg-stone-700 hover:bg-stone-600 text-white rounded-full shadow-xl flex items-center justify-center transition active:scale-95"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Registro rápido */}
+        <div className="flex items-center gap-2">
+          <span className={`text-xs font-medium px-2.5 py-1 rounded-full shadow ${D.bgCard} ${D.text} border ${D.border}`}>
+            Registro rápido ⚡
+          </span>
+          <button
+            onClick={() => { setOpen(false); onQuick(); }}
+            className="w-12 h-12 bg-amber-500 hover:bg-amber-400 text-white rounded-full shadow-xl flex items-center justify-center transition active:scale-95"
+          >
+            <Zap className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Botón principal */}
+      <button
+        onClick={() => setOpen(!open)}
+        className={`fixed bottom-24 right-5 z-30 w-14 h-14 text-white rounded-full shadow-2xl flex items-center justify-center transition-all duration-200 active:scale-95 ${open ? 'bg-stone-500 rotate-45' : 'bg-stone-900 hover:bg-stone-800'}`}
+        style={{ boxShadow: '0 10px 30px -5px rgba(0,0,0,0.4)' }}
+      >
+        <Plus className="w-6 h-6" />
+      </button>
+    </>
+  );
+}
+
+// ============ QUICK ENTRY ============
+function QuickEntry({ catGasto, config, transacciones, onGuardar, onCerrar, onCompleto, D }) {
+  const [monto, setMonto] = useState('');
+  const [categoria, setCategoria] = useState('');
+  const [detalle, setDetalle] = useState('');
+  const [tipoRegistro, setTipoRegistro] = useState('real');
+  const [step, setStep] = useState('monto'); // monto | categoria | confirm
+  const inputRef = React.useRef(null);
+
+  // Top 6 categorías más usadas
+  const topCats = React.useMemo(() => {
+    const counts = {};
+    (transacciones || []).filter(t => t.tipo === 'gasto').forEach(t => {
+      counts[t.categoria] = (counts[t.categoria] || 0) + 1;
+    });
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([id]) => id);
+    const top = sorted.slice(0, 6);
+    if (top.length < 6) {
+      catGasto.forEach(c => { if (!top.includes(c.id) && top.length < 6) top.push(c.id); });
+    }
+    return top.map(id => catGasto.find(c => c.id === id)).filter(Boolean);
+  }, [transacciones, catGasto]);
+
+  React.useEffect(() => {
+    if (step === 'monto') setTimeout(() => inputRef.current?.focus(), 100);
+  }, [step]);
+
+  const handleMonto = (v) => {
+    // Solo permitir números y punto/coma
+    const clean = v.replace(/[^0-9.,]/g, '');
+    setMonto(clean);
+  };
+
+  const confirmarMonto = () => {
+    if (!monto || parseFloat(monto.replace(',', '.')) <= 0) return;
+    setStep('categoria');
+  };
+
+  const seleccionarCat = (id) => {
+    setCategoria(id);
+    setStep('confirm');
+  };
+
+  const guardar = () => {
+    const cat = catGasto.find(c => c.id === categoria);
+    onGuardar({
+      tipo: 'gasto',
+      tipoRegistro,
+      categoria,
+      subcategoria: '',
+      detalle,
+      monto: parseFloat(monto.replace(',', '.')) || 0,
+      fecha: toISODate(nowLima()),
+      persona: config.persona,
+      veces: 1,
+    });
+  };
+
+  const cat = catGasto.find(c => c.id === categoria);
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
+      <div className={`w-full max-w-md animate-slide-up rounded-t-3xl shadow-2xl overflow-hidden ${D.bg}`}>
+
+        {/* Barra de progreso */}
+        <div className="flex gap-1 px-5 pt-4 mb-1">
+          {['monto','categoria','confirm'].map((s, i) => (
+            <div key={s} className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+              step === s ? 'bg-amber-500' :
+              ['monto','categoria','confirm'].indexOf(step) > i ? 'bg-stone-400' : (D.bgMuted.includes('stone-800') ? 'bg-stone-700' : 'bg-stone-200')
+            }`} />
+          ))}
+        </div>
+
+        {/* STEP 1: Monto */}
+        {step === 'monto' && (
+          <div className="px-5 pt-3 pb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className={`font-serif text-lg font-semibold ${D.text}`}>⚡ Registro rápido</p>
+                <p className={`text-xs ${D.textMuted}`}>¿Cuánto gastaste?</p>
+              </div>
+              <button onClick={onCerrar} className={`p-1.5 rounded-full ${D.bgMuted}`}>
+                <X className={`w-4 h-4 ${D.textMuted}`} />
+              </button>
+            </div>
+
+            {/* Display del monto */}
+            <div className="text-center py-4">
+              <div className="flex items-baseline justify-center gap-2">
+                <span className={`font-serif text-3xl ${D.textMuted}`}>{config.moneda}</span>
+                <span className={`font-serif text-6xl font-semibold tracking-tight ${monto ? D.text : D.textMuted}`}>
+                  {monto || '0'}
+                </span>
+              </div>
+            </div>
+
+            {/* Teclado numérico */}
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k => (
+                <button
+                  key={k}
+                  onClick={() => {
+                    if (k === '⌫') setMonto(m => m.slice(0, -1));
+                    else if (k === '.' && monto.includes('.')) return;
+                    else handleMonto(monto + k);
+                  }}
+                  className={`h-14 rounded-2xl font-serif text-2xl font-medium transition active:scale-95 ${k === '⌫' ? D.bgMuted + ' ' + D.textMuted : D.bgCard + ' border ' + D.border + ' ' + D.text + ' hover:opacity-80'}`}
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+
+            {/* Real / Proyectado */}
+            <div className={`grid grid-cols-2 gap-1 p-1 rounded-xl mb-3 ${D.bgMuted}`}>
+              {['real','proyectado'].map(t => (
+                <button key={t} onClick={() => setTipoRegistro(t)}
+                  className={`py-2 rounded-lg text-xs font-medium transition capitalize ${tipoRegistro === t ? D.bgCard + ' shadow-sm ' + D.text : D.textMuted}`}
+                >
+                  {t === 'real' ? '⚡ Real' : '📅 Proyectado'}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={confirmarMonto}
+              disabled={!monto || parseFloat(monto.replace(',','.')) <= 0}
+              className="w-full py-4 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-2xl text-lg transition disabled:opacity-30 active:scale-[0.98]"
+            >
+              Continuar →
+            </button>
+          </div>
+        )}
+
+        {/* STEP 2: Categoría */}
+        {step === 'categoria' && (
+          <div className="px-5 pt-3 pb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className={`font-serif text-lg font-semibold ${D.text}`}>
+                  {config.moneda} {monto}
+                </p>
+                <p className={`text-xs ${D.textMuted}`}>¿En qué lo gastaste?</p>
+              </div>
+              <button onClick={() => setStep('monto')} className={`p-1.5 rounded-full ${D.bgMuted}`}>
+                <ChevronLeft className={`w-4 h-4 ${D.textMuted}`} />
+              </button>
+            </div>
+
+            {/* Top 6 categorías */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {topCats.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => seleccionarCat(c.id)}
+                  className={`p-3 rounded-2xl border-2 flex flex-col items-center gap-1.5 transition active:scale-95 border-transparent hover:border-stone-300 ${D.bgCard}`}
+                  style={{ borderColor: categoria === c.id ? c.color : undefined }}
+                >
+                  <span className="text-2xl">{c.emoji}</span>
+                  <span className={`text-[10px] font-medium text-center leading-tight ${D.textSub}`}>{c.nombre}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Detalle opcional */}
+            <input
+              type="text"
+              value={detalle}
+              onChange={e => setDetalle(e.target.value)}
+              placeholder="Detalle (opcional) — ej: almuerzo, taxi..."
+              className={`w-full px-3 py-2.5 rounded-xl text-sm border outline-none mb-3 ${D.bgInput} ${D.border} ${D.text}`}
+            />
+
+            <button
+              onClick={onCompleto}
+              className={`w-full py-2.5 rounded-xl text-sm font-medium border transition ${D.bgCard} ${D.border} ${D.textSub}`}
+            >
+              Más opciones (categorías, recurrencia...)
+            </button>
+          </div>
+        )}
+
+        {/* STEP 3: Confirmación */}
+        {step === 'confirm' && cat && (
+          <div className="px-5 pt-3 pb-8">
+            <div className="flex items-center justify-between mb-6">
+              <p className={`font-serif text-lg font-semibold ${D.text}`}>Confirmar</p>
+              <button onClick={() => setStep('categoria')} className={`p-1.5 rounded-full ${D.bgMuted}`}>
+                <ChevronLeft className={`w-4 h-4 ${D.textMuted}`} />
+              </button>
+            </div>
+
+            {/* Resumen visual */}
+            <div className={`rounded-2xl p-5 mb-6 border ${D.bgCard} ${D.border}`}>
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0"
+                  style={{ backgroundColor: cat.color + '22' }}>
+                  {cat.emoji}
+                </div>
+                <div className="flex-1">
+                  <p className={`font-serif text-3xl font-semibold ${D.text}`}>
+                    {config.moneda} {monto}
+                  </p>
+                  <p className={`text-sm ${D.textMuted} mt-0.5`}>{cat.nombre}{detalle ? ` · ${detalle}` : ''}</p>
+                </div>
+              </div>
+              <div className={`mt-4 pt-3 border-t flex items-center justify-between text-xs ${D.border} ${D.textMuted}`}>
+                <span>{formatFecha(nowLima())} · {tipoRegistro === 'real' ? '⚡ Real' : '📅 Proyectado'}</span>
+                <span>{config.persona}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={guardar}
+              className="w-full py-4 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-2xl text-lg transition active:scale-[0.98] shadow-lg"
+            >
+              ✓ Guardar gasto
+            </button>
+            <button onClick={onCerrar} className={`w-full mt-2 py-2.5 rounded-2xl text-sm ${D.textMuted}`}>
+              Cancelar
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
