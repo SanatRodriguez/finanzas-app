@@ -36,6 +36,17 @@ const DEFAULT_CONFIG = {
   ajustarFinDeSemana: true,
   moneda: 'S/.',
   persona: 'Sanat',
+  tema: 'claro',       // claro | oscuro | auto
+  acento: 'amber',     // amber | emerald | sky | rose | violet
+};
+
+// Paleta de acentos
+const ACENTOS = {
+  amber:   { label: 'Ámbar',    dot: '#d97706', cls: 'bg-amber-500',   text: 'text-amber-700',   border: 'border-amber-500',   italic: 'text-amber-700' },
+  emerald: { label: 'Esmeralda', dot: '#059669', cls: 'bg-emerald-500', text: 'text-emerald-700', border: 'border-emerald-500', italic: 'text-emerald-700' },
+  sky:     { label: 'Cielo',    dot: '#0284c7', cls: 'bg-sky-500',     text: 'text-sky-700',     border: 'border-sky-500',     italic: 'text-sky-700' },
+  rose:    { label: 'Rosa',     dot: '#e11d48', cls: 'bg-rose-500',    text: 'text-rose-700',    border: 'border-rose-500',    italic: 'text-rose-700' },
+  violet:  { label: 'Violeta',  dot: '#7c3aed', cls: 'bg-violet-500',  text: 'text-violet-700',  border: 'border-violet-500',  italic: 'text-violet-700' },
 };
 
 
@@ -57,25 +68,33 @@ const ajustarSiFinDeSemana = (fecha) => {
 };
 
 // Devuelve el rango del mes financiero que CONTIENE la fecha dada
+// Usa UTC puro con offset Lima para evitar problemas de timezone
 const getRangoMesFinanciero = (fechaRef, diaInicio, ajustar) => {
-  const ref = new Date(fechaRef);
-  ref.setHours(0, 0, 0, 0);
+  // Trabajamos en UTC con offset Lima para todo
+  const refY = fechaRef.getUTCFullYear();
+  const refM = fechaRef.getUTCMonth();
+  const refD = fechaRef.getUTCDate();
 
-  // candidato: día de inicio del mes actual
-  let inicio = new Date(ref.getFullYear(), ref.getMonth(), diaInicio);
-  if (ajustar) inicio = ajustarSiFinDeSemana(inicio);
+  // Candidato: inicio del mes actual
+  let inicioDate = new Date(Date.UTC(refY, refM, diaInicio, 12, 0, 0));
+  if (ajustar) inicioDate = ajustarSiFinDeSemana(inicioDate);
 
-  if (ref < inicio) {
-    inicio = new Date(ref.getFullYear(), ref.getMonth() - 1, diaInicio);
-    if (ajustar) inicio = ajustarSiFinDeSemana(inicio);
+  // Si la fecha de referencia es anterior al inicio candidato, retroceder un mes
+  const refUTC = Date.UTC(refY, refM, refD, 12, 0, 0);
+  if (refUTC < inicioDate.getTime()) {
+    inicioDate = new Date(Date.UTC(refY, refM - 1, diaInicio, 12, 0, 0));
+    if (ajustar) inicioDate = ajustarSiFinDeSemana(inicioDate);
   }
 
-  let fin = new Date(inicio.getFullYear(), inicio.getMonth() + 1, diaInicio);
-  if (ajustar) fin = ajustarSiFinDeSemana(fin);
-  fin.setDate(fin.getDate() - 1);
-  fin.setHours(23, 59, 59, 999);
+  // Fin = día anterior al próximo inicio
+  const nextM = inicioDate.getUTCMonth() + 1;
+  const nextY = inicioDate.getUTCFullYear() + (nextM > 11 ? 1 : 0);
+  let finDate = new Date(Date.UTC(nextY, nextM % 12, diaInicio, 12, 0, 0));
+  if (ajustar) finDate = ajustarSiFinDeSemana(finDate);
+  // Retroceder 1 día para obtener el último día del período
+  finDate = new Date(finDate.getTime() - 24 * 60 * 60 * 1000);
 
-  return { inicio, fin };
+  return { inicio: inicioDate, fin: finDate };
 };
 
 const formatFecha = (d) => {
@@ -91,11 +110,29 @@ const formatFechaCorta = (d) => {
   return `${dd}/${mm}`;
 };
 
+// Zona horaria Lima (UTC-5, sin daylight saving)
+const LIMA_OFFSET_MS = -5 * 60 * 60 * 1000;
+
+const nowLima = () => {
+  const utc = Date.now();
+  return new Date(utc + LIMA_OFFSET_MS);
+};
+
 const toISODate = (d) => {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
+  // Forzar interpretación en zona Lima
+  const lima = new Date(d.getTime() + LIMA_OFFSET_MS);
+  const yyyy = lima.getUTCFullYear();
+  const mm = String(lima.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(lima.getUTCDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
+};
+
+// Parsear "YYYY-MM-DD" como fecha local Lima (sin desfase por UTC)
+const parseFechaLima = (s) => {
+  if (!s) return new Date();
+  // "2026-04-23" -> tratarlo como mediodia Lima para evitar que cambie de día
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)); // mediodía UTC = mañana en Lima, seguro
 };
 
 const NOMBRES_MES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -418,7 +455,8 @@ export default function App() {
 
   const txDelMes = useMemo(() => {
     return transacciones.filter(t => {
-      const f = new Date(t.fecha + 'T12:00:00');
+      if (!t.fecha) return false;
+      const f = parseFechaLima(t.fecha);
       return f >= mesActual.inicio && f <= mesActual.fin;
     });
   }, [transacciones, mesActual]);
@@ -442,21 +480,48 @@ export default function App() {
     setFechaRef(nuevo);
   };
 
+  // Detectar si el sistema prefiere oscuro (para modo auto)
+  const sistemaOscuro = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const temaActivo = config.tema === 'auto' ? (sistemaOscuro ? 'oscuro' : 'claro') : (config.tema || 'claro');
+  const isDark = temaActivo === 'oscuro';
+  const acento = ACENTOS[config.acento || 'amber'];
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-stone-50 flex items-center justify-center">
-        <div className="text-stone-600 font-serif text-xl italic">Cargando...</div>
+      <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-stone-950' : 'bg-stone-50'}`}>
+        <div className={`font-serif text-xl italic ${isDark ? 'text-stone-300' : 'text-stone-600'}`}>Cargando...</div>
       </div>
     );
   }
 
+  const D = {
+    // Backgrounds
+    bg: isDark ? 'bg-stone-950' : 'bg-stone-50',
+    bgCard: isDark ? 'bg-stone-900' : 'bg-white',
+    bgMuted: isDark ? 'bg-stone-800' : 'bg-stone-100',
+    bgInput: isDark ? 'bg-stone-800' : 'bg-white',
+    bgHero: isDark ? 'from-stone-950 via-stone-900 to-stone-950' : 'from-stone-900 via-stone-800 to-stone-900',
+    // Bordes
+    border: isDark ? 'border-stone-700' : 'border-stone-200',
+    borderMuted: isDark ? 'border-stone-700' : 'border-stone-300',
+    // Textos
+    text: isDark ? 'text-stone-100' : 'text-stone-900',
+    textMuted: isDark ? 'text-stone-400' : 'text-stone-500',
+    textSub: isDark ? 'text-stone-300' : 'text-stone-700',
+    // Glass (header/nav)
+    glass: isDark ? 'bg-stone-950/80 backdrop-blur-md' : 'bg-white/80 backdrop-blur-md',
+    // Accent
+    accentText: acento.text,
+    accentBorder: acento.border,
+    accentDot: acento.dot,
+  };
+
   return (
-    <div className="min-h-screen bg-stone-50 pb-24" style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
-      <style>{`
+    <div className={\`min-h-screen \${D.bg} pb-24 transition-colors duration-300\`} style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+      <style>{\`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800;9..144,900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
         .font-serif { font-family: 'Fraunces', Georgia, serif; font-feature-settings: 'ss01' on; }
         .font-sans { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
-        .glass { backdrop-filter: blur(12px); background: rgba(255,255,255,0.75); }
         .grain { background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E"); }
         @keyframes slide-up { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -468,17 +533,18 @@ export default function App() {
         .stagger > *:nth-child(3) { animation-delay: 0.15s; }
         .stagger > *:nth-child(4) { animation-delay: 0.2s; }
         .stagger > *:nth-child(5) { animation-delay: 0.25s; }
-      `}</style>
+        input[type='date']::-webkit-calendar-picker-indicator { filter: \${isDark ? 'invert(1)' : 'none'}; }
+      \`}</style>
 
       {/* ========= HEADER ========= */}
-      <header className="sticky top-0 z-30 glass border-b border-stone-200">
+      <header className={`sticky top-0 z-30 border-b ${D.glass} ${D.border}`}>
         <div className="max-w-2xl mx-auto px-5 py-4 flex items-center justify-between">
           <div>
-            <h1 className="font-serif text-2xl font-semibold text-stone-900 leading-none tracking-tight">
-              Finanzas<span className="text-amber-700 italic">.</span>
+            <h1 className={`font-serif text-2xl font-semibold leading-none tracking-tight ${D.text}`}>
+              Finanzas<span className={`${D.accentText} italic`}>.</span>
             </h1>
-            <p className="text-[11px] text-stone-500 uppercase tracking-widest mt-1 flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${!scriptUrl ? 'bg-stone-300' : syncStatus === 'error' ? 'bg-red-500' : syncStatus === 'syncing' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
+            <p className={`text-[11px] uppercase tracking-widest mt-1 flex items-center gap-1.5 ${D.textMuted}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${!scriptUrl ? 'bg-stone-400' : syncStatus === 'error' ? 'bg-red-500' : syncStatus === 'syncing' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
               {config.persona}
             </p>
           </div>
@@ -487,17 +553,17 @@ export default function App() {
               <button
                 onClick={sincronizar}
                 disabled={syncStatus === 'syncing'}
-                className="p-2 hover:bg-stone-100 rounded-full transition disabled:opacity-50"
+                className={`p-2 rounded-full transition disabled:opacity-50 hover:${D.bgMuted}`}
                 title="Sincronizar"
               >
-                <span className={`text-stone-600 text-lg inline-block ${syncStatus === 'syncing' ? 'animate-spin' : ''}`}>↻</span>
+                <span className={`${D.textMuted} text-lg inline-block ${syncStatus === 'syncing' ? 'animate-spin' : ''}`}>↻</span>
               </button>
             )}
             <button
               onClick={() => setVista('config')}
-              className="p-2 hover:bg-stone-100 rounded-full transition"
+              className={`p-2 rounded-full transition hover:${D.bgMuted}`}
             >
-              <Settings className="w-5 h-5 text-stone-600" />
+              <Settings className={`w-5 h-5 ${D.textMuted}`} />
             </button>
           </div>
         </div>
@@ -505,20 +571,20 @@ export default function App() {
 
       {/* ========= NAVEGADOR DE MES ========= */}
       <div className="max-w-2xl mx-auto px-5 pt-4">
-        <div className="flex items-center justify-between bg-white rounded-2xl border border-stone-200 p-3 shadow-sm">
-          <button onClick={() => navegarMes(-1)} className="p-2 hover:bg-stone-100 rounded-full transition">
-            <ChevronLeft className="w-5 h-5" />
+        <div className={`flex items-center justify-between rounded-2xl border p-3 shadow-sm ${D.bgCard} ${D.border}`}>
+          <button onClick={() => navegarMes(-1)} className={`p-2 rounded-full transition hover:${D.bgMuted}`}>
+            <ChevronLeft className={`w-5 h-5 ${D.text}`} />
           </button>
           <div className="text-center">
-            <div className="font-serif text-lg font-semibold text-stone-900">
+            <div className={`font-serif text-lg font-semibold ${D.text}`}>
               {formatFechaCorta(mesActual.inicio)} – {formatFechaCorta(mesActual.fin)}
             </div>
-            <div className="text-[10px] uppercase tracking-widest text-stone-500 mt-0.5">
-              {NOMBRES_MES_LARGO[mesActual.inicio.getMonth()]} {mesActual.inicio.getFullYear()}
+            <div className={`text-[10px] uppercase tracking-widest mt-0.5 ${D.textMuted}`}>
+              {NOMBRES_MES_LARGO[mesActual.inicio.getUTCMonth()]} {mesActual.inicio.getUTCFullYear()}
             </div>
           </div>
-          <button onClick={() => navegarMes(1)} className="p-2 hover:bg-stone-100 rounded-full transition">
-            <ChevronRight className="w-5 h-5" />
+          <button onClick={() => navegarMes(1)} className={`p-2 rounded-full transition hover:${D.bgMuted}`}>
+            <ChevronRight className={`w-5 h-5 ${D.text}`} />
           </button>
         </div>
       </div>
@@ -526,13 +592,13 @@ export default function App() {
       {/* ========= VISTAS ========= */}
       <main className="max-w-2xl mx-auto px-5 pt-5">
         {vista === 'dashboard' && (
-          <Dashboard stats={stats} txDelMes={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} onMarcarReal={marcarComoReal} onEditar={(tx) => { setEditTx(tx); setShowForm(true); }} onEliminar={eliminarTx} />
+          <Dashboard stats={stats} txDelMes={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D} onMarcarReal={marcarComoReal} onEditar={(tx) => { setEditTx(tx); setShowForm(true); }} onEliminar={eliminarTx} />
         )}
         {vista === 'registro' && (
-          <Registro transacciones={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} onMarcarReal={marcarComoReal} onEditar={(tx) => { setEditTx(tx); setShowForm(true); }} onEliminar={eliminarTx} />
+          <Registro transacciones={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D} onMarcarReal={marcarComoReal} onEditar={(tx) => { setEditTx(tx); setShowForm(true); }} onEliminar={eliminarTx} />
         )}
         {vista === 'analisis' && (
-          <Analisis txDelMes={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} stats={stats} />
+          <Analisis txDelMes={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} stats={stats} D={D} />
         )}
         {vista === 'config' && (
           <Config config={config} setConfig={(c) => { setConfig(c); saveLocal(STORAGE_KEYS.CONFIG, c); showToast('Guardado ✓'); }}
@@ -545,6 +611,8 @@ export default function App() {
             transacciones={transacciones}
             onSincronizar={sincronizar}
             syncStatus={syncStatus}
+            D={D}
+            isDark={isDark}
           />
         )}
       </main>
@@ -561,7 +629,7 @@ export default function App() {
       )}
 
       {/* ========= BOTTOM NAV ========= */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 glass border-t border-stone-200">
+      <nav className={`fixed bottom-0 left-0 right-0 z-30 border-t ${D.glass} ${D.border}`}>
         <div className="max-w-2xl mx-auto px-2 py-2 grid grid-cols-4">
           {[
             { id: 'dashboard', icon: Wallet, label: 'Resumen' },
@@ -572,7 +640,7 @@ export default function App() {
             <button
               key={item.id}
               onClick={() => setVista(item.id)}
-              className={`flex flex-col items-center gap-1 py-2 rounded-xl transition ${vista === item.id ? 'text-amber-800' : 'text-stone-500'}`}
+              className={`flex flex-col items-center gap-1 py-2 rounded-xl transition ${vista === item.id ? D.accentText : D.textMuted}`}
             >
               <item.icon className="w-5 h-5" strokeWidth={vista === item.id ? 2.5 : 1.75} />
               <span className={`text-[10px] uppercase tracking-wider ${vista === item.id ? 'font-semibold' : ''}`}>{item.label}</span>
@@ -591,6 +659,7 @@ export default function App() {
           transacciones={transacciones}
           onGuardar={guardarTx}
           onCerrar={() => { setShowForm(false); setEditTx(null); }}
+          D={D}
         />
       )}
 
@@ -607,9 +676,11 @@ export default function App() {
 }
 
 // ============ DASHBOARD ============
-function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, onMarcarReal, onEditar, onEliminar }) {
+function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, onMarcarReal, onEditar, onEliminar }) {
   const ultimas = useMemo(() => {
-    return [...txDelMes].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 5);
+    return [...txDelMes]
+      .sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
+      .slice(0, 5);
   }, [txDelMes]);
 
   const findCat = (tipo, id) => (tipo === 'gasto' ? catGasto : catIngreso).find(c => c.id === id) || { emoji: '📦', nombre: id, color: '#888' };
@@ -620,7 +691,7 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, onMarcarReal
   return (
     <div className="space-y-5 stagger animate-fade-in">
       {/* HERO BALANCE */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-stone-900 via-stone-800 to-stone-900 text-white p-6 shadow-xl">
+      <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${D.bgHero} text-white p-6 shadow-xl`}>
         <div className="absolute inset-0 grain opacity-30" />
         <div className="absolute -top-20 -right-20 w-64 h-64 bg-amber-500/20 rounded-full blur-3xl" />
         <div className="relative">
@@ -648,26 +719,12 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, onMarcarReal
 
       {/* CARDS INGRESO/GASTO */}
       <div className="grid grid-cols-2 gap-3">
-        <CardMetric
-          icon={<TrendingUp className="w-4 h-4" />}
-          label="Ingresos"
-          real={stats.ingresoReal}
-          proy={stats.ingresoProy}
-          accent="emerald"
-          moneda={config.moneda}
-        />
-        <CardMetric
-          icon={<TrendingDown className="w-4 h-4" />}
-          label="Gastos"
-          real={stats.gastoReal}
-          proy={stats.gastoProy}
-          accent="red"
-          moneda={config.moneda}
-        />
+        <CardMetric icon={<TrendingUp className="w-4 h-4" />} label="Ingresos" real={stats.ingresoReal} proy={stats.ingresoProy} accent="emerald" moneda={config.moneda} D={D} />
+        <CardMetric icon={<TrendingDown className="w-4 h-4" />} label="Gastos" real={stats.gastoReal} proy={stats.gastoProy} accent="red" moneda={config.moneda} D={D} />
       </div>
 
       {/* EJECUCIÓN PRESUPUESTO */}
-      <div className="bg-white rounded-2xl border border-stone-200 p-5 shadow-sm">
+      <div className={`rounded-2xl border p-5 shadow-sm ${D.bgCard} ${D.border}`}>
         <div className="flex items-baseline justify-between mb-3">
           <div>
             <p className="text-[10px] uppercase tracking-widest text-stone-500">Ejecución de presupuesto</p>
@@ -693,18 +750,18 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, onMarcarReal
       {/* ÚLTIMOS MOVIMIENTOS */}
       <div>
         <div className="flex items-baseline justify-between mb-3 px-1">
-          <h2 className="font-serif text-xl font-semibold">Movimientos recientes</h2>
-          <span className="text-xs text-stone-500">{txDelMes.length} en total</span>
+          <h2 className={`font-serif text-xl font-semibold ${D.text}`}>Movimientos recientes</h2>
+          <span className={`text-xs ${D.textMuted}`}>{txDelMes.length} en total</span>
         </div>
         {ultimas.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-dashed border-stone-300 p-8 text-center">
-            <p className="text-stone-500 text-sm">Aún no hay movimientos en este período</p>
-            <p className="text-stone-400 text-xs mt-1">Toca el botón + para registrar</p>
+          <div className={`rounded-2xl border border-dashed p-8 text-center ${D.bgCard} ${D.borderMuted}`}>
+            <p className={`text-sm ${D.textMuted}`}>Aún no hay movimientos en este período</p>
+            <p className={`text-xs mt-1 ${D.textMuted}`}>Toca el botón + para registrar</p>
           </div>
         ) : (
           <div className="space-y-2">
             {ultimas.map(tx => (
-              <ItemTx key={tx.id} tx={tx} cat={findCat(tx.tipo, tx.categoria)} moneda={config.moneda} onMarcarReal={onMarcarReal} onEditar={onEditar} onEliminar={onEliminar} />
+              <ItemTx key={tx.id} tx={tx} cat={findCat(tx.tipo, tx.categoria)} moneda={config.moneda} onMarcarReal={onMarcarReal} onEditar={onEditar} onEliminar={onEliminar} D={D} />
             ))}
           </div>
         )}
@@ -713,7 +770,7 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, onMarcarReal
   );
 }
 
-function CardMetric({ icon, label, real, proy, accent, moneda }) {
+function CardMetric({ icon, label, real, proy, accent, moneda, D }) {
   const ratio = proy > 0 ? (real / proy) * 100 : 0;
   const accentMap = {
     emerald: { text: 'text-emerald-700', bg: 'bg-emerald-50', icon: 'bg-emerald-100 text-emerald-700' },
@@ -721,34 +778,34 @@ function CardMetric({ icon, label, real, proy, accent, moneda }) {
   };
   const a = accentMap[accent];
   return (
-    <div className="bg-white rounded-2xl border border-stone-200 p-4 shadow-sm">
+    <div className={`rounded-2xl border p-4 shadow-sm ${D.bgCard} ${D.border}`}>
       <div className="flex items-center gap-2 mb-3">
         <div className={`w-7 h-7 rounded-full ${a.icon} flex items-center justify-center`}>
           {icon}
         </div>
-        <span className="text-[10px] uppercase tracking-widest text-stone-500 font-medium">{label}</span>
+        <span className={`text-[10px] uppercase tracking-widest font-medium ${D.textMuted}`}>{label}</span>
       </div>
-      <div className="font-serif text-2xl font-semibold tracking-tight">
+      <div className={`font-serif text-2xl font-semibold tracking-tight ${D.text}`}>
         {formatMonto(real, moneda)}
       </div>
-      <div className="mt-2 text-[11px] text-stone-500">
-        de {formatMonto(proy, moneda)} <span className="text-stone-400">proyectado</span>
+      <div className={`mt-2 text-[11px] ${D.textMuted}`}>
+        de {formatMonto(proy, moneda)} <span className={D.textMuted}>proyectado</span>
       </div>
     </div>
   );
 }
 
-function ItemTx({ tx, cat, moneda, onMarcarReal, onEditar, onEliminar }) {
+function ItemTx({ tx, cat, moneda, onMarcarReal, onEditar, onEliminar, D }) {
   const esGasto = tx.tipo === 'gasto';
   const esProy = tx.tipoRegistro === 'proyectado';
   const [open, setOpen] = useState(false);
-  const fecha = new Date(tx.fecha + 'T12:00:00');
+  const fecha = parseFechaLima(tx.fecha);
 
   return (
-    <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-sm">
+    <div className={`rounded-2xl border overflow-hidden shadow-sm ${D.bgCard} ${D.border}`}>
       <button
         onClick={() => setOpen(!open)}
-        className="w-full p-3.5 flex items-center gap-3 hover:bg-stone-50 transition"
+        className={`w-full p-3.5 flex items-center gap-3 transition hover:${D.bgMuted}`}
       >
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
@@ -758,11 +815,11 @@ function ItemTx({ tx, cat, moneda, onMarcarReal, onEditar, onEliminar }) {
         </div>
         <div className="flex-1 min-w-0 text-left">
           <div className="flex items-center gap-1.5">
-            <p className="font-medium text-stone-900 text-sm truncate">{tx.detalle || cat.nombre}</p>
+            <p className={`font-medium text-sm truncate ${D.text}`}>{tx.detalle || cat.nombre}</p>
             {esProy && <span className="text-[9px] uppercase tracking-wide bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded font-semibold">Proy</span>}
             {tx.grupoId && <Repeat className="w-3 h-3 text-stone-400" />}
           </div>
-          <p className="text-[11px] text-stone-500 mt-0.5">
+          <p className={`text-[11px] mt-0.5 ${D.textMuted}`}>
             {formatFechaCorta(fecha)} · {cat.nombre}
             {tx.subcategoria && ` · ${tx.subcategoria}`}
           </p>
@@ -772,7 +829,7 @@ function ItemTx({ tx, cat, moneda, onMarcarReal, onEditar, onEliminar }) {
         </div>
       </button>
       {open && (
-        <div className="border-t border-stone-100 p-3 flex gap-2 bg-stone-50">
+        <div className={`border-t p-3 flex gap-2 ${D.bgMuted} ${D.border}`}>
           {esProy && (
             <button
               onClick={() => onMarcarReal(tx.id)}
@@ -783,7 +840,7 @@ function ItemTx({ tx, cat, moneda, onMarcarReal, onEditar, onEliminar }) {
           )}
           <button
             onClick={() => { onEditar(tx); setOpen(false); }}
-            className="flex-1 text-xs font-medium px-3 py-2 bg-white border border-stone-300 rounded-lg hover:bg-stone-100 transition"
+            className={`flex-1 text-xs font-medium px-3 py-2 rounded-lg transition ${D.bgCard} border ${D.border} ${D.text} hover:opacity-80`}
           >
             Editar
           </button>
@@ -812,7 +869,7 @@ function ItemTx({ tx, cat, moneda, onMarcarReal, onEditar, onEliminar }) {
 }
 
 // ============ REGISTRO ============
-function Registro({ transacciones, catGasto, catIngreso, config, onMarcarReal, onEditar, onEliminar }) {
+function Registro({ transacciones, catGasto, catIngreso, config, D, onMarcarReal, onEditar, onEliminar }) {
   const [filtro, setFiltro] = useState('todos'); // todos | proyectado | real | gasto | ingreso
   const findCat = (tipo, id) => (tipo === 'gasto' ? catGasto : catIngreso).find(c => c.id === id) || { emoji: '📦', nombre: id, color: '#888' };
 
@@ -822,7 +879,12 @@ function Registro({ transacciones, catGasto, catIngreso, config, onMarcarReal, o
     else if (filtro === 'real') f = f.filter(t => t.tipoRegistro === 'real');
     else if (filtro === 'gasto') f = f.filter(t => t.tipo === 'gasto');
     else if (filtro === 'ingreso') f = f.filter(t => t.tipo === 'ingreso');
-    return f.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    // Descendente por fecha de ejecución (campo fecha), no por actualización
+    return f.sort((a, b) => {
+      const fa = a.fecha || '';
+      const fb = b.fecha || '';
+      return fb.localeCompare(fa);
+    });
   }, [transacciones, filtro]);
 
   const filtros = [
@@ -840,11 +902,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, onMarcarReal, o
           <button
             key={f.id}
             onClick={() => setFiltro(f.id)}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition ${
-              filtro === f.id
-                ? 'bg-stone-900 text-white'
-                : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-50'
-            }`}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition ${filtro === f.id ? 'bg-stone-900 text-white' : `${D.bgCard} border ${D.border} ${D.textSub} hover:opacity-80`}`}
           >
             {f.label}
           </button>
@@ -858,7 +916,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, onMarcarReal, o
       ) : (
         <div className="space-y-2">
           {filtradas.map(tx => (
-            <ItemTx key={tx.id} tx={tx} cat={findCat(tx.tipo, tx.categoria)} moneda={config.moneda} onMarcarReal={onMarcarReal} onEditar={onEditar} onEliminar={onEliminar} />
+            <ItemTx key={tx.id} tx={tx} cat={findCat(tx.tipo, tx.categoria)} moneda={config.moneda} onMarcarReal={onMarcarReal} onEditar={onEditar} onEliminar={onEliminar} D={D} />
           ))}
         </div>
       )}
@@ -867,7 +925,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, onMarcarReal, o
 }
 
 // ============ ANÁLISIS ============
-function Analisis({ txDelMes, catGasto, catIngreso, config, stats }) {
+function Analisis({ txDelMes, catGasto, catIngreso, config, stats, D }) {
   const analisisCat = useMemo(() => {
     const map = {};
     txDelMes.filter(t => t.tipo === 'gasto').forEach(t => {
@@ -902,28 +960,28 @@ function Analisis({ txDelMes, catGasto, catIngreso, config, stats }) {
   return (
     <div className="space-y-5 animate-fade-in">
       {/* RESUMEN COMPARATIVO */}
-      <div className="bg-white rounded-2xl border border-stone-200 p-5 shadow-sm">
-        <h2 className="font-serif text-lg font-semibold mb-4">Proyectado vs Real</h2>
+      <div className={`rounded-2xl border p-5 shadow-sm ${D.bgCard} ${D.border}`}>
+        <h2 className={`font-serif text-lg font-semibold mb-4 ${D.text}`}>Proyectado vs Real</h2>
         <div className="space-y-3">
-          <BarraComparativa label="Ingresos" proy={stats.ingresoProy} real={stats.ingresoReal} moneda={config.moneda} positivo />
-          <BarraComparativa label="Gastos" proy={stats.gastoProy} real={stats.gastoReal} moneda={config.moneda} />
+          <BarraComparativa label="Ingresos" proy={stats.ingresoProy} real={stats.ingresoReal} moneda={config.moneda} positivo D={D} />
+          <BarraComparativa label="Gastos" proy={stats.gastoProy} real={stats.gastoReal} moneda={config.moneda} D={D} />
           <div className="pt-3 border-t border-stone-100">
-            <BarraComparativa label="Balance" proy={stats.balanceProy} real={stats.balanceReal} moneda={config.moneda} positivo />
+            <BarraComparativa label="Balance" proy={stats.balanceProy} real={stats.balanceReal} moneda={config.moneda} positivo D={D} />
           </div>
         </div>
       </div>
 
       {/* GASTOS POR CATEGORÍA */}
       <div>
-        <h2 className="font-serif text-xl font-semibold mb-3 px-1">Gastos por categoría</h2>
+        <h2 className={`font-serif text-xl font-semibold mb-3 px-1 ${D.text}`}>Gastos por categoría</h2>
         {analisisCat.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-dashed border-stone-300 p-6 text-center">
-            <p className="text-stone-500 text-sm">Sin gastos en este período</p>
+          <div className={`rounded-2xl border border-dashed p-6 text-center ${D.bgCard} ${D.borderMuted}`}>
+            <p className={`text-sm ${D.textMuted}`}>Sin gastos en este período</p>
           </div>
         ) : (
           <div className="space-y-2">
             {analisisCat.map(c => (
-              <CategoriaCard key={c.id} cat={c} moneda={config.moneda} />
+              <CategoriaCard key={c.id} cat={c} moneda={config.moneda} D={D} />
             ))}
           </div>
         )}
@@ -932,16 +990,16 @@ function Analisis({ txDelMes, catGasto, catIngreso, config, stats }) {
       {/* INGRESOS POR CATEGORÍA */}
       {analisisIng.length > 0 && (
         <div>
-          <h2 className="font-serif text-xl font-semibold mb-3 px-1">Ingresos por categoría</h2>
+          <h2 className={`font-serif text-xl font-semibold mb-3 px-1 ${D.text}`}>Ingresos por categoría</h2>
           <div className="space-y-2">
             {analisisIng.map(c => (
-              <div key={c.id} className="bg-white rounded-2xl border border-stone-200 p-4 shadow-sm">
+              <div key={c.id} className={`rounded-2xl border p-4 shadow-sm ${D.bgCard} ${D.border}`}>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg" style={{ backgroundColor: c.color + '22' }}>
                     {c.emoji}
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium text-sm">{c.nombre}</p>
+                    <p className={`font-medium text-sm ${D.text}`}>{c.nombre}</p>
                     <div className="flex gap-3 mt-1 text-[11px] text-stone-500">
                       <span>Proy: <strong className="text-stone-700">{formatMonto(c.proy, config.moneda)}</strong></span>
                       <span>Real: <strong className="text-emerald-700">{formatMonto(c.real, config.moneda)}</strong></span>
@@ -957,7 +1015,7 @@ function Analisis({ txDelMes, catGasto, catIngreso, config, stats }) {
   );
 }
 
-function BarraComparativa({ label, proy, real, moneda, positivo }) {
+function BarraComparativa({ label, proy, real, moneda, positivo, D }) {
   const max = Math.max(Math.abs(proy), Math.abs(real), 1);
   const pctProy = (Math.abs(proy) / max) * 100;
   const pctReal = (Math.abs(real) / max) * 100;
@@ -966,7 +1024,7 @@ function BarraComparativa({ label, proy, real, moneda, positivo }) {
   return (
     <div>
       <div className="flex items-baseline justify-between mb-1.5">
-        <span className="text-xs font-medium text-stone-700 uppercase tracking-wide">{label}</span>
+        <span className={`text-xs font-medium uppercase tracking-wide ${D.textSub}`}>{label}</span>
         <span className={`text-[11px] font-medium ${
           positivo
             ? (diff >= 0 ? 'text-emerald-600' : 'text-red-600')
@@ -977,15 +1035,15 @@ function BarraComparativa({ label, proy, real, moneda, positivo }) {
       </div>
       <div className="space-y-1.5">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-stone-400 w-10">Proy</span>
-          <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+          <span className={`text-[10px] w-10 ${D.textMuted}`}>Proy</span>
+          <div className={`flex-1 h-1.5 rounded-full overflow-hidden ${D.bgMuted}`}>
             <div className="h-full bg-stone-400 rounded-full transition-all" style={{ width: `${pctProy}%` }} />
           </div>
-          <span className="text-[11px] text-stone-600 font-medium w-20 text-right">{formatMonto(proy, moneda)}</span>
+          <span className={`text-[11px] font-medium w-20 text-right ${D.textSub}`}>{formatMonto(proy, moneda)}</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-stone-400 w-10">Real</span>
-          <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+          <span className={`text-[10px] w-10 ${D.textMuted}`}>Real</span>
+          <div className={`flex-1 h-1.5 rounded-full overflow-hidden ${D.bgMuted}`}>
             <div className={`h-full rounded-full transition-all ${positivo ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${pctReal}%` }} />
           </div>
           <span className="text-[11px] text-stone-900 font-semibold w-20 text-right">{formatMonto(real, moneda)}</span>
@@ -995,19 +1053,19 @@ function BarraComparativa({ label, proy, real, moneda, positivo }) {
   );
 }
 
-function CategoriaCard({ cat, moneda }) {
+function CategoriaCard({ cat, moneda, D }) {
   const ejec = Math.min(cat.ejecucion, 150);
   const color = cat.ejecucion <= 80 ? 'bg-emerald-500' : cat.ejecucion <= 100 ? 'bg-amber-500' : 'bg-red-500';
 
   return (
-    <div className="bg-white rounded-2xl border border-stone-200 p-4 shadow-sm">
+    <div className={`rounded-2xl border p-4 shadow-sm ${D.bgCard} ${D.border}`}>
       <div className="flex items-center gap-3 mb-3">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg" style={{ backgroundColor: cat.color + '22' }}>
           {cat.emoji}
         </div>
         <div className="flex-1">
-          <p className="font-medium text-sm">{cat.nombre}</p>
-          <p className="text-[11px] text-stone-500 mt-0.5">
+          <p className={`font-medium text-sm ${D.text}`}>{cat.nombre}</p>
+          <p className={`text-[11px] mt-0.5 ${D.textMuted}`}>
             {formatMonto(cat.real, moneda)} <span className="text-stone-400">/ {formatMonto(cat.proy, moneda)}</span>
           </p>
         </div>
@@ -1030,14 +1088,14 @@ function CategoriaCard({ cat, moneda }) {
 }
 
 // ============ FORMULARIO ============
-function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuardar, onCerrar }) {
+function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuardar, onCerrar, D }) {
   const [tipo, setTipo] = useState(tx?.tipo || 'gasto');
   const [tipoRegistro, setTipoRegistro] = useState(tx?.tipoRegistro || 'real');
   const [categoria, setCategoria] = useState(tx?.categoria || '');
   const [subcategoria, setSubcategoria] = useState(tx?.subcategoria || '');
   const [detalle, setDetalle] = useState(tx?.detalle || '');
   const [monto, setMonto] = useState(tx?.monto || '');
-  const [fecha, setFecha] = useState(tx?.fecha || toISODate(new Date()));
+  const [fecha, setFecha] = useState(tx?.fecha || toISODate(nowLima()));
   const [veces, setVeces] = useState(1);
   const [showAllCats, setShowAllCats] = useState(false);
   const [showOptional, setShowOptional] = useState(false);
@@ -1086,29 +1144,29 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
   };
 
   return (
-    <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-stone-50 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col animate-slide-up shadow-2xl">
+    <div className="fixed inset-0 z-40 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className={`w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col animate-slide-up shadow-2xl ${D.bg}`}>
 
         {/* HERO: Header + Toggle + Monto todo junto, no sticky */}
-        <div className="bg-gradient-to-b from-stone-100 to-stone-50 px-5 pt-4 pb-5 rounded-t-3xl">
+        <div className={`px-5 pt-4 pb-5 rounded-t-3xl ${D.bgMuted}`}>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-serif text-lg font-semibold">{editando ? 'Editar' : 'Nuevo registro'}</h2>
-            <button onClick={onCerrar} className="p-1.5 hover:bg-stone-200 rounded-full -mr-1.5">
-              <X className="w-5 h-5" />
+            <h2 className={`font-serif text-lg font-semibold ${D.text}`}>{editando ? 'Editar' : 'Nuevo registro'}</h2>
+            <button onClick={onCerrar} className={`p-1.5 rounded-full -mr-1.5 hover:${D.bgCard}`}>
+              <X className={`w-5 h-5 ${D.text}`} />
             </button>
           </div>
 
           {/* Toggle Tipo - segmented control */}
-          <div className="grid grid-cols-2 gap-1 bg-stone-200 p-1 rounded-xl mb-4">
+          <div className={`grid grid-cols-2 gap-1 p-1 rounded-xl mb-4 ${D.bgMuted}`}>
             <button
               onClick={() => { setTipo('gasto'); setCategoria(''); setShowAllCats(false); }}
-              className={`py-1.5 rounded-lg text-xs font-medium transition ${tipo === 'gasto' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600'}`}
+              className={`py-1.5 rounded-lg text-xs font-medium transition ${tipo === 'gasto' ? `${D.bgCard} shadow-sm ${D.text}` : D.textMuted}`}
             >
               💸 Gasto
             </button>
             <button
               onClick={() => { setTipo('ingreso'); setCategoria(''); setShowAllCats(false); }}
-              className={`py-1.5 rounded-lg text-xs font-medium transition ${tipo === 'ingreso' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600'}`}
+              className={`py-1.5 rounded-lg text-xs font-medium transition ${tipo === 'ingreso' ? `${D.bgCard} shadow-sm ${D.text}` : D.textMuted}`}
             >
               💰 Ingreso
             </button>
@@ -1117,7 +1175,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
           {/* MONTO - HERO CENTRAL */}
           <div className="text-center">
             <div className="flex items-center justify-center gap-1.5">
-              <span className="font-serif text-xl text-stone-400 mt-2">{config.moneda}</span>
+              <span className={`font-serif text-xl mt-2 ${D.textMuted}`}>{config.moneda}</span>
               <input
                 type="number"
                 inputMode="decimal"
@@ -1126,7 +1184,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
                 placeholder="0.00"
                 step="0.01"
                 autoFocus={!editando}
-                className="font-serif text-4xl font-semibold bg-transparent text-center w-44 outline-none focus:outline-none placeholder:text-stone-300"
+                className={`font-serif text-4xl font-semibold bg-transparent text-center w-44 outline-none focus:outline-none placeholder:text-stone-400 ${D.text}`}
               />
             </div>
           </div>
@@ -1158,7 +1216,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
               {topCats.length > 0 && cats.length > 3 && (
                 <button
                   onClick={() => setShowAllCats(!showAllCats)}
-                  className="text-[11px] font-medium text-amber-700 hover:text-amber-800"
+                  className={`text-[11px] font-medium ${D.accentText}`}
                 >
                   {showAllCats ? '↑ Ver menos' : `↓ Ver todas (${cats.length})`}
                 </button>
@@ -1176,16 +1234,16 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
                     style={{ borderColor: categoria === c.id ? c.color : undefined }}
                   >
                     <span className="text-xl">{c.emoji}</span>
-                    <span className="text-[9px] text-stone-700 font-medium leading-tight text-center line-clamp-1">{c.nombre}</span>
+                    <span className={`text-[9px] font-medium leading-tight text-center line-clamp-1 ${D.textSub}`}>{c.nombre}</span>
                   </button>
                 ))}
                 {cats.length > 3 && (
                   <button
                     onClick={() => setShowAllCats(true)}
-                    className="p-2 rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 hover:bg-stone-100 transition flex flex-col items-center justify-center gap-0.5"
+                    className={`p-2 rounded-xl border-2 border-dashed transition flex flex-col items-center justify-center gap-0.5 ${D.bgMuted} ${D.borderMuted}`}
                   >
                     <span className="text-lg">⋯</span>
-                    <span className="text-[9px] text-stone-600 font-medium">Más</span>
+                    <span className={`text-[9px] font-medium ${D.textSub}`}>Más</span>
                   </button>
                 )}
               </div>
@@ -1200,7 +1258,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
                     style={{ borderColor: categoria === c.id ? c.color : undefined }}
                   >
                     <span className="text-xl">{c.emoji}</span>
-                    <span className="text-[9px] text-stone-700 font-medium leading-tight text-center line-clamp-1">{c.nombre}</span>
+                    <span className={`text-[9px] font-medium leading-tight text-center line-clamp-1 ${D.textSub}`}>{c.nombre}</span>
                   </button>
                 ))}
               </div>
@@ -1209,12 +1267,12 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
 
           {/* Fecha - siempre visible, compacto */}
           <div>
-            <label className="text-[10px] uppercase tracking-widest text-stone-500 mb-1.5 block">Fecha</label>
+            <label className={`text-[10px] uppercase tracking-widest mb-1.5 block ${D.textMuted}`}>Fecha</label>
             <input
               type="date"
               value={fecha}
               onChange={e => setFecha(e.target.value)}
-              className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:border-stone-900 outline-none"
+              className={`w-full px-3 py-2 rounded-xl text-sm outline-none border ${D.bgInput} ${D.border} ${D.text}`}
             />
           </div>
 
@@ -1247,7 +1305,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
           {/* Detalle y subcategoría - colapsables */}
           <button
             onClick={() => setShowOptional(!showOptional)}
-            className="w-full flex items-center justify-between px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-medium text-stone-600 hover:bg-stone-50 transition"
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition ${D.bgCard} border ${D.border} ${D.textSub}`}
           >
             <span className="flex items-center gap-1.5">
               <span className="text-stone-400">＋</span> Detalle y subcategoría (opcional)
@@ -1262,21 +1320,21 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
                 value={detalle}
                 onChange={e => setDetalle(e.target.value)}
                 placeholder="Detalle (ej: Pago de luz)"
-                className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:border-stone-900 outline-none"
+                className={`w-full px-3 py-2 rounded-xl text-sm outline-none border ${D.bgInput} ${D.border} ${D.text}`}
               />
               <input
                 type="text"
                 value={subcategoria}
                 onChange={e => setSubcategoria(e.target.value)}
                 placeholder="Subcategoría (ej: Servicios)"
-                className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:border-stone-900 outline-none"
+                className={`w-full px-3 py-2 rounded-xl text-sm outline-none border ${D.bgInput} ${D.border} ${D.text}`}
               />
             </div>
           )}
         </div>
 
         {/* FOOTER STICKY con botón guardar */}
-        <div className="px-5 py-3 border-t border-stone-200 bg-stone-50">
+        <div className={`px-5 py-3 border-t ${D.bgMuted} ${D.border}`}>
           <button
             onClick={submit}
             className="w-full py-3 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-xl transition shadow-lg active:scale-[0.98]"
@@ -1290,7 +1348,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
 }
 
 // ============ CONFIG ============
-function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIngreso, onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus }) {
+function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIngreso, onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark }) {
   const [showCats, setShowCats] = useState(null); // 'gasto' | 'ingreso' | null
   const [nuevaCat, setNuevaCat] = useState({ nombre: '', emoji: '📦', color: '#8D99AE' });
   const [tempScriptUrl, setTempScriptUrl] = useState(scriptUrl || '');
@@ -1313,17 +1371,17 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Persona */}
-      <Section titulo="Tu nombre">
+      <Section D={D} titulo="Tu nombre">
         <input
           type="text"
           value={config.persona}
           onChange={e => setConfig({ ...config, persona: e.target.value })}
-          className="w-full px-3.5 py-2.5 bg-white border border-stone-200 rounded-xl text-sm focus:border-stone-900 outline-none"
+          className={`w-full px-3.5 py-2.5 rounded-xl text-sm outline-none border ${D.bgInput} ${D.border} ${D.text}`}
         />
       </Section>
 
       {/* Inicio de mes */}
-      <Section titulo="Día de inicio del período">
+      <Section D={D} titulo="Día de inicio del período">
         <p className="text-xs text-stone-500 mb-2">El día que recibes tu pago. El período va de este día al día anterior del siguiente mes.</p>
         <div className="flex items-center gap-2">
           <input
@@ -1348,7 +1406,7 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
       </Section>
 
       {/* Moneda */}
-      <Section titulo="Moneda">
+      <Section D={D} titulo="Moneda">
         <div className="grid grid-cols-4 gap-2">
           {['S/.', '$', '€', '£'].map(m => (
             <button
@@ -1362,8 +1420,51 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
         </div>
       </Section>
 
+      {/* Apariencia */}
+      <Section D={D} titulo="Apariencia">
+        <div className="space-y-4">
+          {/* Tema */}
+          <div>
+            <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>Tema</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: 'claro', emoji: '☀️', label: 'Claro' },
+                { id: 'oscuro', emoji: '🌙', label: 'Oscuro' },
+                { id: 'auto',   emoji: '⚙️', label: 'Sistema' },
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setConfig({ ...config, tema: t.id })}
+                  className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition ${config.tema === t.id ? `border-stone-900 ${D.bgMuted}` : `${D.border} ${D.bgCard}`}`}
+                >
+                  <span className="text-xl">{t.emoji}</span>
+                  <span className={`text-[11px] font-medium ${D.textSub}`}>{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Acento */}
+          <div>
+            <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>Color de acento</p>
+            <div className="flex gap-3 flex-wrap">
+              {Object.entries(ACENTOS).map(([id, a]) => (
+                <button
+                  key={id}
+                  onClick={() => setConfig({ ...config, acento: id })}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-full border-2 transition text-xs font-medium ${config.acento === id ? 'border-stone-900' : D.border} ${D.bgCard}`}
+                >
+                  <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: a.dot }} />
+                  <span className={D.textSub}>{a.label}</span>
+                  {config.acento === id && <span className={D.accentText}>✓</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* Categorías */}
-      <Section titulo="Categorías">
+      <Section D={D} titulo="Categorías">
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => setShowCats('gasto')} className="p-3 bg-white border border-stone-200 rounded-xl text-sm font-medium text-left hover:bg-stone-50">
             💸 Gastos <span className="text-stone-500">({catGasto.length})</span>
@@ -1375,7 +1476,7 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
       </Section>
 
       {/* Conexión a Google Sheets */}
-      <Section titulo="Conexión a Google Sheets">
+      <Section D={D} titulo="Conexión a Google Sheets">
         <p className="text-xs text-stone-500 mb-3">Tus datos se guardan directamente en tu Google Sheet. Pega aquí la URL del Apps Script que configuraste.</p>
         <div className="flex items-center gap-2 mb-2">
           <div className={`w-2 h-2 rounded-full ${scriptUrl ? (syncStatus === 'error' ? 'bg-red-500' : syncStatus === 'syncing' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500') : 'bg-stone-300'}`} />
@@ -1412,7 +1513,7 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
       </Section>
 
       {/* Datos */}
-      <Section titulo="Datos">
+      <Section D={D} titulo="Datos">
         <p className="text-xs text-stone-500 mb-3">{totalTx} registros en este dispositivo</p>
         <div className="grid grid-cols-2 gap-2">
           <button onClick={onExport} className="flex items-center justify-center gap-2 py-2.5 bg-white border border-stone-200 rounded-xl text-sm font-medium hover:bg-stone-50">
@@ -1538,10 +1639,10 @@ function Config({ config, setConfig, catGasto, setCatGasto, catIngreso, setCatIn
   );
 }
 
-function Section({ titulo, children }) {
+function Section({ titulo, children, D }) {
   return (
-    <div className="bg-white rounded-2xl border border-stone-200 p-5 shadow-sm">
-      <h3 className="font-serif text-base font-semibold mb-3">{titulo}</h3>
+    <div className={`rounded-2xl border p-5 shadow-sm ${D.bgCard} ${D.border}`}>
+      <h3 className={`font-serif text-base font-semibold mb-3 ${D.text}`}>{titulo}</h3>
       {children}
     </div>
   );
