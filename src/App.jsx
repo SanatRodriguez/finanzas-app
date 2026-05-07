@@ -240,6 +240,20 @@ async function apiDeleteCat(scriptUrl, id) {
   return apiCall(scriptUrl, 'POST', { action: 'deleteCat', id });
 }
 
+async function apiListMetas(scriptUrl) {
+  const res = await apiCall(scriptUrl, 'GET', { action: 'listMetas' });
+  return res.data || [];
+}
+async function apiSaveMeta(scriptUrl, meta) {
+  return apiCall(scriptUrl, 'POST', { action: 'saveMeta', meta });
+}
+async function apiAbonarMeta(scriptUrl, id, monto) {
+  return apiCall(scriptUrl, 'POST', { action: 'abonarMeta', id, monto });
+}
+async function apiDeleteMeta(scriptUrl, id) {
+  return apiCall(scriptUrl, 'POST', { action: 'deleteMeta', id });
+}
+
 // ============ COMPONENTE PRINCIPAL ============
 export default function App() {
   const [vista, setVista] = useState('dashboard'); // dashboard | registro | analisis | config
@@ -249,8 +263,11 @@ export default function App() {
   const [catIngreso, setCatIngreso] = useState(DEFAULT_CATEGORIAS_INGRESO);
   const [loading, setLoading] = useState(true);
   const [fechaRef, setFechaRef] = useState(new Date());
+  const [metas, setMetas] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [showQuick, setShowQuick] = useState(false);
+  const [showMetaForm, setShowMetaForm] = useState(false);
+  const [showAbonar, setShowAbonar] = useState(null); // meta object
   const [editTx, setEditTx] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -476,6 +493,47 @@ export default function App() {
   };
 
   // Guardar categoría en Sheet
+  // ============ ACCIONES METAS ============
+  const guardarMeta = async (meta) => {
+    const isNew = !meta.id;
+    const metaFinal = isNew
+      ? { ...meta, id: `meta_${Date.now()}`, montoActual: 0, activo: true }
+      : meta;
+    const nuevas = isNew
+      ? [...metas, metaFinal]
+      : metas.map(m => m.id === meta.id ? metaFinal : m);
+    setMetas(nuevas);
+    saveLocal('finanzas:metas_cache', nuevas);
+    setShowMetaForm(false);
+    showToast(isNew ? 'Meta creada ✓' : 'Meta actualizada ✓');
+    if (scriptUrl) {
+      try { await apiSaveMeta(scriptUrl, metaFinal); } catch(e) { console.error(e); }
+    }
+  };
+
+  const abonarMeta = async (meta, monto) => {
+    const montoNum = parseFloat(String(monto).replace(',', '.')) || 0;
+    if (!montoNum) return;
+    const actualizado = { ...meta, montoActual: (meta.montoActual || 0) + montoNum };
+    const nuevas = metas.map(m => m.id === meta.id ? actualizado : m);
+    setMetas(nuevas);
+    saveLocal('finanzas:metas_cache', nuevas);
+    setShowAbonar(null);
+    showToast(`+${config.moneda} ${montoNum.toFixed(2)} abonado ✓`);
+    if (scriptUrl) {
+      try { await apiAbonarMeta(scriptUrl, meta.id, montoNum); } catch(e) { console.error(e); }
+    }
+  };
+
+  const eliminarMeta = async (id) => {
+    const nuevas = metas.filter(m => m.id !== id);
+    setMetas(nuevas);
+    saveLocal('finanzas:metas_cache', nuevas);
+    if (scriptUrl) {
+      try { await apiDeleteMeta(scriptUrl, id); } catch(e) { console.error(e); }
+    }
+  };
+
   const guardarCat = async (cat, tipo) => {
     const catConTipo = { ...cat, tipo };
     if (tipo === 'gasto') {
@@ -676,7 +734,7 @@ export default function App() {
       {/* ========= VISTAS ========= */}
       <main className="max-w-2xl mx-auto px-5 pt-5">
         {vista === 'dashboard' && (
-          <Dashboard stats={stats} txDelMes={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D} onMarcarReal={marcarComoReal} onEditar={(tx) => { setEditTx(tx); setShowForm(true); }} onEliminar={eliminarTx} />
+          <Dashboard stats={stats} txDelMes={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D} metas={metas} onMarcarReal={marcarComoReal} onEditar={(tx) => { setEditTx(tx); setShowForm(true); }} onEliminar={eliminarTx} onNuevaMeta={() => setShowMetaForm(true)} onAbonar={(m) => setShowAbonar(m)} />
         )}
         {vista === 'registro' && (
           <Registro transacciones={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D} onMarcarReal={marcarComoReal} onEditar={(tx) => { setEditTx(tx); setShowForm(true); }} onEliminar={eliminarTx} />
@@ -732,6 +790,28 @@ export default function App() {
         </div>
       </nav>
 
+      {/* ========= META FORM ========= */}
+      {showMetaForm && (
+        <MetaForm
+          onGuardar={guardarMeta}
+          onCerrar={() => setShowMetaForm(false)}
+          config={config}
+          D={D}
+        />
+      )}
+
+      {/* ========= ABONAR MODAL ========= */}
+      {showAbonar && (
+        <AbonarModal
+          meta={showAbonar}
+          config={config}
+          D={D}
+          onAbonar={(monto) => abonarMeta(showAbonar, monto)}
+          onEliminar={() => { eliminarMeta(showAbonar.id); setShowAbonar(null); }}
+          onCerrar={() => setShowAbonar(null)}
+        />
+      )}
+
       {/* ========= QUICK ENTRY ========= */}
       {showQuick && (
         <QuickEntry
@@ -772,7 +852,7 @@ export default function App() {
 }
 
 // ============ DASHBOARD ============
-function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, onMarcarReal, onEditar, onEliminar }) {
+function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, metas, onMarcarReal, onEditar, onEliminar, onNuevaMeta, onAbonar }) {
   const ultimas = useMemo(() => {
     return [...txDelMes]
       .sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
@@ -865,6 +945,37 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, onMarcarR
           {' '}presupuestados
         </p>
       </div>
+
+      {/* METAS DE AHORRO */}
+      {(metas && metas.length > 0) && (
+        <div>
+          <div className="flex items-center justify-between mb-3 px-1">
+            <h2 className={`font-serif text-xl font-semibold ${D.text}`}>Metas de ahorro</h2>
+            <button onClick={onNuevaMeta}
+              className={`text-xs font-medium px-3 py-1.5 rounded-full border ${D.bgCard} ${D.border} ${D.accentText}`}>
+              + Nueva
+            </button>
+          </div>
+          <div className="space-y-3">
+            {metas.map(meta => (
+              <MetaCard key={meta.id} meta={meta} config={config} D={D} onAbonar={() => onAbonar(meta)} />
+            ))}
+          </div>
+        </div>
+      )}
+      {(metas && metas.length === 0) && (
+        <div>
+          <div className="flex items-center justify-between mb-3 px-1">
+            <h2 className={`font-serif text-xl font-semibold ${D.text}`}>Metas de ahorro</h2>
+          </div>
+          <button onClick={onNuevaMeta}
+            className={`w-full rounded-2xl border-2 border-dashed p-6 flex flex-col items-center gap-2 transition hover:opacity-80 ${D.borderMuted} ${D.bgCard}`}>
+            <span className="text-3xl">🎯</span>
+            <p className={`font-medium text-sm ${D.text}`}>Crea tu primera meta</p>
+            <p className={`text-xs ${D.textMuted}`}>Carro, viaje, emergencia...</p>
+          </button>
+        </div>
+      )}
 
       {/* ÚLTIMOS MOVIMIENTOS */}
       <div>
@@ -1208,6 +1319,294 @@ function CategoriaCard({ cat, moneda, D }) {
             : `Excediste por ${formatMonto(Math.abs(cat.diff), moneda)}`}
         </p>
       )}
+    </div>
+  );
+}
+
+// ============ META CARD ============
+function MetaCard({ meta, config, D, onAbonar }) {
+  const pct = meta.montoObjetivo > 0
+    ? Math.min(100, Math.round((meta.montoActual / meta.montoObjetivo) * 100))
+    : 0;
+  const faltante = Math.max(0, (meta.montoObjetivo || 0) - (meta.montoActual || 0));
+
+  // Hitos
+  const hito = pct >= 100 ? { emoji: '🏆', label: '¡Completada!' }
+    : pct >= 75 ? { emoji: '⚡', label: '¡Ya casi!' }
+    : pct >= 50 ? { emoji: '🔥', label: '¡A mitad!' }
+    : pct >= 25 ? { emoji: '🎯', label: '¡Buen ritmo!' }
+    : null;
+
+  return (
+    <div className={`rounded-3xl overflow-hidden border shadow-sm ${D.bgCard} ${D.border}`}>
+      {/* Imagen con progreso encima */}
+      <div className="relative h-36 overflow-hidden">
+        {meta.imagenUrl ? (
+          <img
+            src={meta.imagenUrl}
+            alt={meta.nombre}
+            className="w-full h-full object-cover"
+            onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='flex'; }}
+          />
+        ) : null}
+        {/* Fallback con emoji */}
+        <div
+          className="absolute inset-0 flex items-center justify-center text-6xl"
+          style={{ display: meta.imagenUrl ? 'none' : 'flex', backgroundColor: (meta.color || '#1c1917') + '22' }}
+        >
+          {meta.emoji || '🎯'}
+        </div>
+
+        {/* Overlay oscuro para legibilidad */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+
+        {/* % encima de la imagen */}
+        <div className="absolute top-3 right-3">
+          <div className={`px-2.5 py-1 rounded-full text-white text-sm font-bold backdrop-blur-sm ${pct >= 100 ? 'bg-emerald-500/90' : 'bg-black/50'}`}>
+            {pct}%
+          </div>
+        </div>
+
+        {/* Hito badge */}
+        {hito && (
+          <div className="absolute top-3 left-3">
+            <div className="px-2.5 py-1 rounded-full bg-amber-500/90 text-white text-xs font-semibold backdrop-blur-sm">
+              {hito.emoji} {hito.label}
+            </div>
+          </div>
+        )}
+
+        {/* Nombre abajo */}
+        <div className="absolute bottom-0 left-0 right-0 px-4 pb-3">
+          <p className="text-white font-serif text-lg font-semibold leading-tight drop-shadow">
+            {meta.nombre}
+          </p>
+          {meta.fechaLimite && (
+            <p className="text-white/70 text-[11px] mt-0.5">
+              Meta: {meta.fechaLimite.replace(/-/g, '/')}
+            </p>
+          )}
+        </div>
+
+        {/* Barra de progreso pegada al bottom */}
+        <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-white/20">
+          <div
+            className={`h-full transition-all duration-700 ${pct >= 100 ? 'bg-emerald-400' : pct >= 75 ? 'bg-amber-400' : 'bg-white'}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Footer con montos y botón */}
+      <div className="px-4 py-3 flex items-center justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-1.5">
+            <span className={`font-serif text-lg font-semibold ${D.text}`}>
+              {config.moneda} {(meta.montoActual || 0).toLocaleString('es-PE', {minimumFractionDigits:2, maximumFractionDigits:2})}
+            </span>
+            <span className={`text-xs ${D.textMuted}`}>
+              / {config.moneda} {(meta.montoObjetivo || 0).toLocaleString('es-PE', {minimumFractionDigits:2, maximumFractionDigits:2})}
+            </span>
+          </div>
+          {faltante > 0 && (
+            <p className={`text-[11px] mt-0.5 ${D.textMuted}`}>
+              Faltan {config.moneda} {faltante.toLocaleString('es-PE', {minimumFractionDigits:2, maximumFractionDigits:2})}
+            </p>
+          )}
+        </div>
+        {pct < 100 ? (
+          <button
+            onClick={onAbonar}
+            className="px-4 py-2 bg-stone-900 text-white rounded-xl text-sm font-semibold transition active:scale-95 whitespace-nowrap"
+          >
+            + Abonar
+          </button>
+        ) : (
+          <div className="px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-semibold">
+            ¡Logrado! 🏆
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============ META FORM ============
+function MetaForm({ onGuardar, onCerrar, config, D }) {
+  const [nombre, setNombre] = useState('');
+  const [emoji, setEmoji] = useState('🎯');
+  const [imagenUrl, setImagenUrl] = useState('');
+  const [montoObjetivo, setMontoObjetivo] = useState('');
+  const [fechaLimite, setFechaLimite] = useState('');
+  const [color, setColor] = useState('#d97706');
+
+  const submit = () => {
+    if (!nombre.trim() || !montoObjetivo) {
+      alert('Completa el nombre y el monto objetivo');
+      return;
+    }
+    onGuardar({
+      nombre: nombre.trim(),
+      emoji,
+      imagenUrl: imagenUrl.trim() || null,
+      montoObjetivo: parseFloat(String(montoObjetivo).replace(',', '.')) || 0,
+      fechaLimite: fechaLimite || null,
+      color,
+      activo: true,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
+      <div className={`w-full max-w-md rounded-t-3xl shadow-2xl animate-slide-up ${D.bg}`}>
+        <div className={`px-5 pt-4 pb-3 border-b ${D.bgMuted} ${D.border} flex items-center justify-between`}>
+          <h2 className={`font-serif text-lg font-semibold ${D.text}`}>Nueva meta</h2>
+          <button onClick={onCerrar} className={`p-1.5 rounded-full ${D.bgCard}`}>
+            <X className={`w-5 h-5 ${D.text}`} />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4 max-h-[75vh] overflow-y-auto">
+          {/* Nombre + emoji */}
+          <div className="flex gap-2">
+            <input type="text" value={emoji} onChange={e => setEmoji(e.target.value)}
+              maxLength={2} placeholder="🎯"
+              className={`w-14 px-2 py-2.5 rounded-xl border text-center text-2xl ${D.bgInput} ${D.border} ${D.text}`}
+            />
+            <input type="text" value={nombre} onChange={e => setNombre(e.target.value)}
+              placeholder="Nombre de la meta (ej: Toyota Yaris)"
+              className={`flex-1 px-3 py-2.5 rounded-xl border text-sm ${D.bgInput} ${D.border} ${D.text}`}
+            />
+          </div>
+
+          {/* Monto objetivo */}
+          <div>
+            <label className={`text-[10px] uppercase tracking-widest mb-1.5 block ${D.textMuted}`}>
+              Monto objetivo ({config.moneda})
+            </label>
+            <input type="number" inputMode="decimal" value={montoObjetivo}
+              onChange={e => setMontoObjetivo(e.target.value)}
+              placeholder="15000.00"
+              className={`w-full px-3 py-2.5 rounded-xl border text-sm font-serif text-lg ${D.bgInput} ${D.border} ${D.text}`}
+            />
+          </div>
+
+          {/* Imagen URL */}
+          <div>
+            <label className={`text-[10px] uppercase tracking-widest mb-1.5 block ${D.textMuted}`}>
+              URL de imagen (opcional)
+            </label>
+            <input type="url" value={imagenUrl} onChange={e => setImagenUrl(e.target.value)}
+              placeholder="https://... (foto del carro, destino, etc.)"
+              className={`w-full px-3 py-2.5 rounded-xl border text-xs font-mono ${D.bgInput} ${D.border} ${D.text}`}
+            />
+            <p className={`text-[11px] mt-1 ${D.textMuted}`}>
+              Busca en Google Images → clic derecho → "Copiar dirección de imagen"
+            </p>
+          </div>
+
+          {/* Fecha límite */}
+          <div>
+            <label className={`text-[10px] uppercase tracking-widest mb-1.5 block ${D.textMuted}`}>
+              Fecha objetivo (opcional)
+            </label>
+            <input type="date" value={fechaLimite} onChange={e => setFechaLimite(e.target.value)}
+              className={`w-full px-3 py-2.5 rounded-xl border text-sm ${D.bgInput} ${D.border} ${D.text}`}
+            />
+          </div>
+
+          {/* Color */}
+          <div>
+            <label className={`text-[10px] uppercase tracking-widest mb-2 block ${D.textMuted}`}>Color</label>
+            <div className="flex gap-2 flex-wrap">
+              {['#d97706','#059669','#3b82f6','#8b5cf6','#ef4444','#f97316','#06b6d4','#ec4899'].map(c => (
+                <button key={c} onClick={() => setColor(c)}
+                  className={`w-8 h-8 rounded-full transition ${color === c ? 'ring-2 ring-offset-2 ring-stone-900 scale-110' : ''}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <button onClick={submit}
+            className="w-full py-3.5 bg-stone-900 hover:bg-stone-800 text-white font-semibold rounded-xl text-base transition active:scale-[0.98]">
+            Crear meta 🎯
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ ABONAR MODAL ============
+function AbonarModal({ meta, config, D, onAbonar, onEliminar, onCerrar }) {
+  const [monto, setMonto] = useState('');
+  const pct = meta.montoObjetivo > 0
+    ? Math.min(100, Math.round((meta.montoActual / meta.montoObjetivo) * 100))
+    : 0;
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
+      <div className={`w-full max-w-md rounded-t-3xl shadow-2xl animate-slide-up ${D.bg}`}>
+        <div className={`px-5 pt-4 pb-3 border-b ${D.bgMuted} ${D.border} flex items-center justify-between`}>
+          <div>
+            <h2 className={`font-serif text-lg font-semibold ${D.text}`}>
+              {meta.emoji || '🎯'} {meta.nombre}
+            </h2>
+            <p className={`text-xs mt-0.5 ${D.textMuted}`}>
+              {pct}% completado · faltan {config.moneda} {Math.max(0, (meta.montoObjetivo||0) - (meta.montoActual||0)).toLocaleString('es-PE', {minimumFractionDigits:2})}
+            </p>
+          </div>
+          <button onClick={onCerrar} className={`p-1.5 rounded-full ${D.bgCard}`}>
+            <X className={`w-5 h-5 ${D.text}`} />
+          </button>
+        </div>
+
+        <div className="px-5 py-5 space-y-4">
+          {/* Barra de progreso */}
+          <div className={`h-2 rounded-full overflow-hidden ${D.bgMuted}`}>
+            <div className="h-full bg-amber-500 transition-all duration-500 rounded-full"
+              style={{ width: `${pct}%` }} />
+          </div>
+
+          {/* Input de monto */}
+          <div className="text-center py-2">
+            <p className={`text-xs uppercase tracking-widest mb-2 ${D.textMuted}`}>¿Cuánto abonás?</p>
+            <div className="flex items-center justify-center gap-1.5">
+              <span className={`font-serif text-xl ${D.textMuted}`}>{config.moneda}</span>
+              <input
+                type="number" inputMode="decimal" value={monto}
+                onChange={e => setMonto(e.target.value)}
+                placeholder="0.00" autoFocus
+                className={`font-serif text-4xl font-semibold bg-transparent text-center w-44 outline-none placeholder:text-stone-400 ${D.text}`}
+              />
+            </div>
+          </div>
+
+          {/* Botones rápidos */}
+          <div className="grid grid-cols-4 gap-2">
+            {[100, 200, 400, 500].map(v => (
+              <button key={v} onClick={() => setMonto(String(v))}
+                className={`py-2 rounded-xl text-sm font-medium border transition ${D.bgCard} ${D.border} ${D.textSub}`}>
+                {v}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => { if (parseFloat(monto) > 0) onAbonar(monto); }}
+            disabled={!monto || parseFloat(monto) <= 0}
+            className="w-full py-3.5 bg-stone-900 text-white font-semibold rounded-xl text-base transition disabled:opacity-30 active:scale-[0.98]"
+          >
+            💰 Abonar {monto ? `${config.moneda} ${parseFloat(monto).toFixed(2)}` : ''}
+          </button>
+
+          <button onClick={onEliminar}
+            className="w-full py-2 text-red-500 text-sm rounded-xl hover:bg-red-50 transition">
+            Eliminar esta meta
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
