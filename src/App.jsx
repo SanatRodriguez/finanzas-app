@@ -38,7 +38,24 @@ const DEFAULT_CONFIG = {
   persona: 'Sanat',
   tema: 'claro',
   acento: 'amber',
+  pais: 'PE',
 };
+
+const PAISES_LATAM = [
+  { code: 'PE', nombre: 'Perú', tz: 'America/Lima', moneda: 'S/.',  emoji: '🇵🇪' },
+  { code: 'CO', nombre: 'Colombia', tz: 'America/Bogota', moneda: '$', emoji: '🇨🇴' },
+  { code: 'EC', nombre: 'Ecuador', tz: 'America/Guayaquil', moneda: '$', emoji: '🇪🇨' },
+  { code: 'MX', nombre: 'México', tz: 'America/Mexico_City', moneda: '$', emoji: '🇲🇽' },
+  { code: 'CL', nombre: 'Chile', tz: 'America/Santiago', moneda: '$', emoji: '🇨🇱' },
+  { code: 'AR', nombre: 'Argentina', tz: 'America/Argentina/Buenos_Aires', moneda: '$', emoji: '🇦🇷' },
+  { code: 'BO', nombre: 'Bolivia', tz: 'America/La_Paz', moneda: 'Bs', emoji: '🇧🇴' },
+  { code: 'PY', nombre: 'Paraguay', tz: 'America/Asuncion', moneda: '₲', emoji: '🇵🇾' },
+  { code: 'UY', nombre: 'Uruguay', tz: 'America/Montevideo', moneda: '$', emoji: '🇺🇾' },
+  { code: 'VE', nombre: 'Venezuela', tz: 'America/Caracas', moneda: 'Bs', emoji: '🇻🇪' },
+  { code: 'BR', nombre: 'Brasil', tz: 'America/Sao_Paulo', moneda: 'R$', emoji: '🇧🇷' },
+];
+
+const getTZ = (paisCode) => (PAISES_LATAM.find(p => p.code === paisCode) || PAISES_LATAM[0]).tz;
 
 const ACENTOS = {
   amber:   { label: 'Ámbar',     dot: '#d97706', text: 'text-amber-700',   italic: 'text-amber-700' },
@@ -51,14 +68,14 @@ const ACENTOS = {
 const SEED_DATA = [{"id":"seed_0001","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2026-04-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0002","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2026-05-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0003","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2026-06-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0004","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2026-07-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0005","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2026-08-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0006","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2026-09-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0007","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2026-10-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0008","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2026-11-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0009","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2026-12-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0010","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2027-01-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0011","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2027-02-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0012","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2027-03-23","persona":"Sanat","grupoId":"seedgrp_001"},{"id":"seed_0013","tipo":"ingreso","tipoRegistro":"real","categoria":"salario","subcategoria":"","detalle":"Auna","monto":3000.0,"fecha":"2026-03-23","persona":"Sanat","grupoId":null},{"id":"seed_0014","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"cts","subcategoria":"","detalle":"Auna","monto":2000.0,"fecha":"2026-05-15","persona":"Sanat","grupoId":"seedgrp_002"},{"id":"seed_0015","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"cts","subcategoria":"","detalle":"Auna","monto":2000.0,"fecha":"2026-11-13","persona":"Sanat","grupoId":"seedgrp_002"},{"id":"seed_0016","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"gratificacion","subcategoria":"","detalle":"Auna","monto":3800.0,"fecha":"2026-07-23","persona":"Sanat","grupoId":"seedgrp_003"},{"id":"seed_0017","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"gratificacion","subcategoria":"","detalle":"Auna","monto":3800.0,"fecha":"2026-12-23","persona":"Sanat","grupoId":"seedgrp_003"},{"id":"seed_0018","tipo":"ingreso","tipoRegistro":"proyectado","categoria":"gratificacion","subcategoria":"Aguinaldo","detalle":"Auna","monto":200.0,"fecha":"2026-12-23","persona":"Sanat","grupoId":null},{"id":"seed_0019","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2026-03-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0020","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2026-04-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0021","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2026-05-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0022","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2026-06-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0023","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2026-07-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0024","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2026-08-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0025","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2026-09-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0026","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2026-10-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0027","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2026-11-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0028","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2026-12-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0029","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2027-01-30","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0030","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":50.0,"fecha":"2027-02-28","persona":"Sanat","grupoId":"seedgrp_004"},{"id":"seed_0031","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-03-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0032","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-04-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0033","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-05-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0034","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-06-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0035","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-07-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0036","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-08-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0037","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-09-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0038","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-10-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0039","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-11-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0040","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-12-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0041","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2027-01-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0042","tipo":"gasto","tipoRegistro":"proyectado","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2027-02-24","persona":"Sanat","grupoId":"seedgrp_005"},{"id":"seed_0043","tipo":"gasto","tipoRegistro":"real","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":20.0,"fecha":"2026-03-26","persona":"Sanat","grupoId":null},{"id":"seed_0044","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2026-04-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0045","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2026-05-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0046","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2026-06-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0047","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2026-07-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0048","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2026-08-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0049","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2026-09-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0050","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2026-10-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0051","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2026-11-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0052","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2026-12-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0053","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2027-01-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0054","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2027-02-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0055","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro Carro","detalle":"Segunda Toyota","monto":400.0,"fecha":"2027-03-24","persona":"Sanat","grupoId":"seedgrp_006"},{"id":"seed_0056","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2026-04-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0057","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2026-05-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0058","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2026-06-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0059","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2026-07-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0060","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2026-08-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0061","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2026-09-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0062","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2026-10-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0063","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2026-11-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0064","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2026-12-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0065","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2027-01-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0066","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2027-02-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0067","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Lovable","detalle":"","monto":200.0,"fecha":"2027-03-23","persona":"Sanat","grupoId":"seedgrp_007"},{"id":"seed_0068","tipo":"gasto","tipoRegistro":"real","categoria":"casa_padres","subcategoria":"Servicios","detalle":"Luz 654822","monto":328.4,"fecha":"2026-03-24","persona":"Sanat","grupoId":null},{"id":"seed_0069","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2026-03-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0070","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2026-04-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0071","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2026-05-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0072","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2026-06-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0073","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2026-07-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0074","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2026-08-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0075","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2026-09-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0076","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2026-10-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0077","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2026-11-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0078","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2026-12-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0079","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2027-01-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0080","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Mamá","detalle":"Luz 654822","monto":300.0,"fecha":"2027-02-23","persona":"Sanat","grupoId":"seedgrp_008"},{"id":"seed_0081","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2026-03-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0082","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2026-04-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0083","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2026-05-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0084","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2026-06-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0085","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2026-07-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0086","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2026-08-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0087","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2026-09-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0088","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2026-10-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0089","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2026-11-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0090","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2026-12-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0091","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2027-01-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0092","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":200.0,"fecha":"2027-02-23","persona":"Sanat","grupoId":"seedgrp_009"},{"id":"seed_0093","tipo":"gasto","tipoRegistro":"real","categoria":"alimentacion","subcategoria":"Comida Casa","detalle":"Dinero","monto":450.0,"fecha":"2026-03-24","persona":"Sanat","grupoId":null},{"id":"seed_0094","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2026-03-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0095","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2026-04-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0096","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2026-05-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0097","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2026-06-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0098","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2026-07-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0099","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2026-08-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0100","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2026-09-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0101","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2026-10-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0102","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2026-11-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0103","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2026-12-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0104","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2027-01-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0105","tipo":"gasto","tipoRegistro":"proyectado","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":200.0,"fecha":"2027-02-23","persona":"Sanat","grupoId":"seedgrp_010"},{"id":"seed_0106","tipo":"gasto","tipoRegistro":"real","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Agua","monto":60.0,"fecha":"2026-04-08","persona":"Sanat","grupoId":null},{"id":"seed_0107","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2026-03-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0108","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2026-04-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0109","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2026-05-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0110","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2026-06-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0111","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2026-07-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0112","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2026-08-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0113","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2026-09-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0114","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2026-10-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0115","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2026-11-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0116","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2026-12-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0117","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2027-01-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0118","tipo":"gasto","tipoRegistro":"proyectado","categoria":"casa_padres","subcategoria":"Comida","detalle":"Alimento","monto":60.0,"fecha":"2027-02-25","persona":"Sanat","grupoId":"seedgrp_011"},{"id":"seed_0119","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2026-04-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0120","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2026-05-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0121","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2026-06-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0122","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2026-07-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0123","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2026-08-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0124","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2026-09-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0125","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2026-10-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0126","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2026-11-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0127","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2026-12-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0128","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2027-01-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0129","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2027-02-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0130","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2027-03-10","persona":"Sanat","grupoId":"seedgrp_012"},{"id":"seed_0131","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2026-03-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0132","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2026-04-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0133","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2026-05-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0134","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2026-06-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0135","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2026-07-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0136","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2026-08-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0137","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2026-09-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0138","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2026-10-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0139","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2026-11-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0140","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2026-12-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0141","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2027-01-30","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0142","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":90.0,"fecha":"2027-02-28","persona":"Sanat","grupoId":"seedgrp_013"},{"id":"seed_0143","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2026-03-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0144","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2026-04-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0145","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2026-05-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0146","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2026-06-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0147","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2026-07-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0148","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2026-08-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0149","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2026-09-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0150","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2026-10-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0151","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2026-11-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0152","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2026-12-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0153","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2027-01-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0154","tipo":"gasto","tipoRegistro":"proyectado","categoria":"transporte","subcategoria":"Trabajo","detalle":"Bus/Tren","monto":50.0,"fecha":"2027-02-23","persona":"Sanat","grupoId":"seedgrp_014"},{"id":"seed_0155","tipo":"gasto","tipoRegistro":"real","categoria":"otros","subcategoria":"Comida","detalle":"Pizza","monto":41.0,"fecha":"2026-03-23","persona":"Sanat","grupoId":null},{"id":"seed_0156","tipo":"gasto","tipoRegistro":"real","categoria":"deuda","subcategoria":"Deuda a Giuli","detalle":"prestamo","monto":210.0,"fecha":"2026-03-23","persona":"Sanat","grupoId":null},{"id":"seed_0157","tipo":"gasto","tipoRegistro":"proyectado","categoria":"deuda","subcategoria":"Deuda a Giuli","detalle":"prestamo","monto":210.0,"fecha":"2026-03-23","persona":"Sanat","grupoId":null},{"id":"seed_0158","tipo":"gasto","tipoRegistro":"real","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":12.5,"fecha":"2026-03-26","persona":"Sanat","grupoId":null},{"id":"seed_0159","tipo":"gasto","tipoRegistro":"proyectado","categoria":"salud","subcategoria":"Skincare","detalle":"","monto":50.0,"fecha":"2026-04-23","persona":"Sanat","grupoId":null},{"id":"seed_0160","tipo":"gasto","tipoRegistro":"real","categoria":"salud","subcategoria":"Peluqueria","detalle":"","monto":15.0,"fecha":"2026-03-26","persona":"Sanat","grupoId":null},{"id":"seed_0161","tipo":"gasto","tipoRegistro":"proyectado","categoria":"salud","subcategoria":"Peluqueria","detalle":"","monto":50.0,"fecha":"2026-03-23","persona":"Sanat","grupoId":null},{"id":"seed_0162","tipo":"gasto","tipoRegistro":"proyectado","categoria":"ahorro","subcategoria":"Ahorro / Emergencias","detalle":"","monto":0.0,"fecha":"2026-03-24","persona":"Sanat","grupoId":null},{"id":"seed_0163","tipo":"gasto","tipoRegistro":"proyectado","categoria":"aseo_personal","subcategoria":"Aseo Personal","detalle":"Desodorante, etc","monto":50.0,"fecha":"2026-03-28","persona":"Sanat","grupoId":null},{"id":"seed_0164","tipo":"gasto","tipoRegistro":"proyectado","categoria":"mascota","subcategoria":"Gata","detalle":"Flora","monto":50.0,"fecha":"2026-03-26","persona":"Sanat","grupoId":null},{"id":"seed_0165","tipo":"gasto","tipoRegistro":"proyectado","categoria":"cumpleanos","subcategoria":"Cumpleaños","detalle":"Regalos :)","monto":50.0,"fecha":"2026-03-25","persona":"Sanat","grupoId":null},{"id":"seed_0166","tipo":"gasto","tipoRegistro":"real","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Luz","monto":101.0,"fecha":"2026-04-08","persona":"Sanat","grupoId":null},{"id":"seed_0167","tipo":"gasto","tipoRegistro":"proyectado","categoria":"servicios_digitales","subcategoria":"Plan Móvil","detalle":"Entel","monto":40.0,"fecha":"2026-04-06","persona":"Sanat","grupoId":null},{"id":"seed_0168","tipo":"gasto","tipoRegistro":"real","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":100.0,"fecha":"2026-03-26","persona":"Sanat","grupoId":null},{"id":"seed_0169","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"ChatGPT","detalle":"","monto":23.0,"fecha":"2026-03-30","persona":"Sanat","grupoId":null},{"id":"seed_0170","tipo":"gasto","tipoRegistro":"real","categoria":"aseo_personal","subcategoria":"Aseo Personal","detalle":"Desodorante, etc","monto":46.5,"fecha":"2026-04-04","persona":"Sanat","grupoId":null},{"id":"seed_0171","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Alquiler","detalle":"Minidepa","monto":550.0,"fecha":"2026-03-27","persona":"Sanat","grupoId":null},{"id":"seed_0172","tipo":"gasto","tipoRegistro":"real","categoria":"fijos_vivienda","subcategoria":"Alquiler","detalle":"Minidepa","monto":550.0,"fecha":"2026-03-28","persona":"Sanat","grupoId":null},{"id":"seed_0173","tipo":"gasto","tipoRegistro":"real","categoria":"mascota","subcategoria":"Gata","detalle":"Flora","monto":40.0,"fecha":"2026-04-04","persona":"Sanat","grupoId":null},{"id":"seed_0174","tipo":"gasto","tipoRegistro":"proyectado","categoria":"servicios_digitales","subcategoria":"Spotify","detalle":"Música","monto":21.0,"fecha":"2026-03-20","persona":"Sanat","grupoId":null},{"id":"seed_0175","tipo":"gasto","tipoRegistro":"real","categoria":"otros","subcategoria":"Salida Familiar","detalle":"","monto":84.29,"fecha":"2026-04-04","persona":"Sanat","grupoId":null},{"id":"seed_0176","tipo":"gasto","tipoRegistro":"real","categoria":"inversion","subcategoria":"ChatGPT","detalle":"","monto":23.0,"fecha":"2026-04-04","persona":"Sanat","grupoId":null},{"id":"seed_0177","tipo":"gasto","tipoRegistro":"proyectado","categoria":"servicios_digitales","subcategoria":"Google One","detalle":"Almacenamiento","monto":13.0,"fecha":"2026-04-21","persona":"Sanat","grupoId":null},{"id":"seed_0178","tipo":"gasto","tipoRegistro":"real","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":133.0,"fecha":"2026-04-04","persona":"Sanat","grupoId":null},{"id":"seed_0179","tipo":"gasto","tipoRegistro":"real","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":26.5,"fecha":"2026-04-05","persona":"Sanat","grupoId":null},{"id":"seed_0180","tipo":"gasto","tipoRegistro":"real","categoria":"otros","subcategoria":"Varios","detalle":"","monto":126.0,"fecha":"2026-04-05","persona":"Sanat","grupoId":null},{"id":"seed_0181","tipo":"gasto","tipoRegistro":"proyectado","categoria":"fijos_vivienda","subcategoria":"Aseo de Casa","detalle":"","monto":50.0,"fecha":"2026-03-25","persona":"Sanat","grupoId":null},{"id":"seed_0182","tipo":"gasto","tipoRegistro":"real","categoria":"fijos_vivienda","subcategoria":"Aseo de Casa","detalle":"","monto":19.9,"fecha":"2026-04-04","persona":"Sanat","grupoId":null},{"id":"seed_0183","tipo":"gasto","tipoRegistro":"real","categoria":"fijos_vivienda","subcategoria":"Servicios","detalle":"Internet","monto":60.0,"fecha":"2026-04-08","persona":"Sanat","grupoId":null},{"id":"seed_0184","tipo":"gasto","tipoRegistro":"real","categoria":"servicios_digitales","subcategoria":"Plan Móvil","detalle":"Entel","monto":40.0,"fecha":"2026-04-12","persona":"Sanat","grupoId":null},{"id":"seed_0185","tipo":"gasto","tipoRegistro":"real","categoria":"transporte","subcategoria":"Varios","detalle":"Bus/Tren/Taxi","monto":66.5,"fecha":"2026-04-12","persona":"Sanat","grupoId":null},{"id":"seed_0186","tipo":"gasto","tipoRegistro":"proyectado","categoria":"inversion","subcategoria":"Claude","detalle":"","monto":74.8,"fecha":"2026-04-21","persona":"Sanat","grupoId":null},{"id":"seed_0187","tipo":"gasto","tipoRegistro":"real","categoria":"inversion","subcategoria":"Claude","detalle":"","monto":74.8,"fecha":"2026-04-21","persona":"Sanat","grupoId":null}];
 
 // ============ ZONA HORARIA LIMA ============
-const LIMA_TZ = 'America/Lima';
+let APP_TZ = 'America/Lima'; // Se actualiza cuando carga config
 
-const nowLima = () => {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: LIMA_TZ }));
+const nowLocal = () => {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: APP_TZ }));
 };
 
-const horaLima = () => {
-  const n = nowLima();
+const horaLocal = () => {
+  const n = nowLocal();
   return String(n.getHours()).padStart(2,'0') + ':' + String(n.getMinutes()).padStart(2,'0');
 };
 
@@ -69,9 +86,33 @@ const toISODate = (d) => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
+// Fecha + hora Lima como "2026-04-30T20:08"
+const toISOFechaHora = () => {
+  const n = nowLocal();
+  const yyyy = n.getFullYear();
+  const mm = String(n.getMonth() + 1).padStart(2, '0');
+  const dd = String(n.getDate()).padStart(2, '0');
+  const hh = String(n.getHours()).padStart(2, '0');
+  const mi = String(n.getMinutes()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+};
+
+// Extraer solo la parte de fecha de un valor que puede ser "2026-04-30" o "2026-04-30T20:08"
+const extraerFecha = (s) => s ? s.substring(0, 10) : '';
+
+// Extraer solo la hora de "2026-04-30T20:08" -> "20:08", o '' si no tiene hora
+const extraerHora = (s) => (s && s.length > 10 && s.includes('T')) ? s.substring(11, 16) : '';
+
 const parseFechaLima = (s) => {
   if (!s) return new Date();
-  const [y, m, d] = s.split('-').map(Number);
+  // Soporta "2026-04-30" y "2026-04-30T20:08"
+  const datePart = s.substring(0, 10);
+  const [y, m, d] = datePart.split('-').map(Number);
+  if (s.length > 10 && s.includes('T')) {
+    const timePart = s.substring(11, 16);
+    const [hh, mi] = timePart.split(':').map(Number);
+    return new Date(y, m - 1, d, hh, mi, 0);
+  }
   return new Date(y, m - 1, d, 12, 0, 0);
 };
 
@@ -170,11 +211,12 @@ export default function App() {
   const [catGasto, setCatGasto] = useState(DEFAULT_CATEGORIAS_GASTO);
   const [catIngreso, setCatIngreso] = useState(DEFAULT_CATEGORIAS_INGRESO);
   const [loading, setLoading] = useState(true);
-  const [fechaRef, setFechaRef] = useState(nowLima());
+  const [fechaRef, setFechaRef] = useState(nowLocal());
   const [toast, setToast] = useState(null);
   const [scriptUrl, setScriptUrl] = useState('');
   const [syncStatus, setSyncStatus] = useState('idle');
   const [showFormCompleto, setShowFormCompleto] = useState(false);
+  const [filtroGlobal, setFiltroGlobal] = useState(null);
   const [editTx, setEditTx] = useState(null);
   const online = useOnline();
 
@@ -209,6 +251,7 @@ export default function App() {
       const ci = loadL(KEYS.CAT_I, DEFAULT_CATEGORIAS_INGRESO);
       const url = loadL(KEYS.SCRIPT_URL, '');
       const cache = loadL(KEYS.TX_CACHE, []);
+      APP_TZ = getTZ(cfg.pais || 'PE');
       setConfig(cfg); setCatGasto(cg); setCatIngreso(ci); setScriptUrl(url); setTransacciones(cache);
 
       if (url && navigator.onLine) {
@@ -274,9 +317,8 @@ export default function App() {
   const updateLocal = (newTxs) => { setTransacciones(newTxs); saveL(KEYS.TX_CACHE, newTxs); };
 
   const guardarTx = async (tx) => {
-    const hora = horaLima();
     if (tx.id) {
-      const updated = { ...tx, monto: parseFloat(tx.monto) || 0, hora: tx.hora || hora };
+      const updated = { ...tx, monto: parseFloat(tx.monto) || 0 };
       updateLocal(transacciones.map(t => t.id === tx.id ? updated : t));
       setShowFormCompleto(false); setEditTx(null); showToast('Actualizado ✓');
       if (scriptUrl && online) { try { setSyncStatus('syncing'); await apiSave(scriptUrl, updated); setSyncStatus('idle'); } catch { setSyncStatus('error'); addPending({ type: 'save', tx: updated }); } }
@@ -289,9 +331,11 @@ export default function App() {
       const nuevas = [];
       for (let i = 0; i < veces; i++) {
         const f = new Date(fechaBase); f.setMonth(f.getMonth() + i);
+        // Solo el primer registro (hoy) lleva hora; los futuros solo fecha
+        const fechaStr = i === 0 && tx.tipoRegistro === 'real' ? toISOFechaHora() : toISODate(f);
         nuevas.push({ tipo: tx.tipo, tipoRegistro: tx.tipoRegistro, categoria: tx.categoria,
           subcategoria: tx.subcategoria || '', detalle: tx.detalle || '', persona: tx.persona || config.persona,
-          id: i === 0 ? baseId : `${baseId}_${i}`, fecha: toISODate(f), hora: i === 0 ? hora : '',
+          id: i === 0 ? baseId : `${baseId}_${i}`, fecha: fechaStr,
           grupoId, monto: parseFloat(tx.monto) || 0 });
       }
       updateLocal([...transacciones, ...nuevas]);
@@ -326,12 +370,12 @@ export default function App() {
   };
 
   const exportarCSV = () => {
-    const h = ['fecha','hora','tipo','tipoRegistro','categoria','subcategoria','detalle','monto','persona'];
+    const h = ['fecha','tipo','tipoRegistro','categoria','subcategoria','detalle','monto','persona'];
     const rows = transacciones.map(t => h.map(k => `"${String(t[k]||'').replace(/"/g,'""')}"`).join(','));
     const csv = [h.join(','), ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `finanzas_${toISODate(nowLima())}.csv`; a.click(); showToast('CSV descargado');
+    a.download = `finanzas_${toISODate(nowLocal())}.csv`; a.click(); showToast('CSV descargado');
   };
 
   const guardarCat = async (cat, tipo) => {
@@ -352,7 +396,11 @@ export default function App() {
 
   // ======== DATOS COMPUTADOS ========
   const mesActual = useMemo(() => getRangoMesFinanciero(fechaRef, config.diaInicioMes, config.ajustarFinDeSemana), [fechaRef, config]);
-  const txDelMes = useMemo(() => transacciones.filter(t => { if (!t.fecha) return false; const f = parseFechaLima(t.fecha); return f >= mesActual.inicio && f <= mesActual.fin; }), [transacciones, mesActual]);
+  const txDelMes = useMemo(() => transacciones.filter(t => {
+    if (!t.fecha) return false;
+    const f = parseFechaLima(extraerFecha(t.fecha));
+    return f >= mesActual.inicio && f <= mesActual.fin;
+  }), [transacciones, mesActual]);
   const stats = useMemo(() => {
     const ip = txDelMes.filter(t => t.tipo === 'ingreso' && t.tipoRegistro === 'proyectado').reduce((s,t) => s + Number(t.monto), 0);
     const ir = txDelMes.filter(t => t.tipo === 'ingreso' && t.tipoRegistro === 'real').reduce((s,t) => s + Number(t.monto), 0);
@@ -401,7 +449,10 @@ export default function App() {
               config={config} D={D} mesActual={mesActual} onNavMes={navegarMes}
               onMarcarReal={marcarComoReal} onEditar={(tx) => { setEditTx(tx); setShowFormCompleto(true); }}
               onEliminar={eliminarTx} syncStatus={syncStatus} onSync={sincronizar} scriptUrl={scriptUrl}
-              online={online} />
+              online={online}
+              onVerIngresos={() => { setVista('registro'); setFiltroGlobal('ingreso'); }}
+              onVerGastos={() => { setVista('registro'); setFiltroGlobal('real'); }}
+              onVerAnalisis={() => setVista('analisis')} />
           ) : <OfflineMsg D={D} />
         )}
         {vista === 'registro' && (
@@ -409,7 +460,9 @@ export default function App() {
             <Registro transacciones={txDelMes} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D}
               mesActual={mesActual} onNavMes={navegarMes}
               onMarcarReal={marcarComoReal} onEditar={(tx) => { setEditTx(tx); setShowFormCompleto(true); }}
-              onEliminar={eliminarTx} />
+              onEliminar={eliminarTx}
+              filtroInicial={filtroGlobal}
+              onFiltroUsado={() => setFiltroGlobal(null)} />
           ) : <OfflineMsg D={D} />
         )}
         {vista === 'analisis' && (
@@ -420,6 +473,7 @@ export default function App() {
         {vista === 'config' && (
           <Config config={config} setConfig={(c) => { setConfig(c); saveL(KEYS.CONFIG, c); showToast('Guardado ✓'); }}
             catGasto={catGasto} catIngreso={catIngreso} onGuardarCat={guardarCat} onEliminarCat={eliminarCat}
+            paises={PAISES_LATAM}
             onExport={exportarCSV} totalTx={transacciones.length} scriptUrl={scriptUrl}
             setScriptUrl={(u) => { setScriptUrl(u); saveL(KEYS.SCRIPT_URL, u); }}
             transacciones={transacciones} onSincronizar={sincronizar} syncStatus={syncStatus} D={D} isDark={isDark} />
@@ -506,7 +560,8 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
   const guardar = () => {
     const m = parseFloat(monto.replace(',', '.'));
     if (!m || !categoria) { if (!m) return; if (!categoria) { /* auto-seleccionar primera */ return; } }
-    onGuardar({ tipo, tipoRegistro, categoria, subcategoria: '', detalle, monto: m, fecha: toISODate(nowLima()), persona: config.persona, veces: 1 });
+    const fechaStr = tipoRegistro === 'real' ? toISOFechaHora() : toISODate(nowLocal());
+    onGuardar({ tipo, tipoRegistro, categoria, subcategoria: '', detalle, monto: m, fecha: fechaStr, persona: config.persona, veces: 1 });
     setMonto(''); setCategoria(''); setDetalle('');
   };
 
@@ -520,7 +575,7 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
           <h1 className={`font-serif text-2xl font-semibold ${D.text}`}>Registrar<span style={{ color: ACENTOS[config.acento || 'amber'].dot }}>.</span></h1>
           <p className={`text-[11px] ${D.textMuted}`}>
             {!online && <><WifiOff className="w-3 h-3 inline mr-1" />Offline · </>}
-            {formatFecha(nowLima())} · {horaLima()}
+            {formatFecha(nowLocal())} · {horaLocal()}
           </p>
         </div>
         <button onClick={onFormCompleto} className={`text-xs px-3 py-1.5 rounded-full border ${D.bgCard} ${D.border} ${D.textSub}`}>
@@ -606,8 +661,8 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
 }
 
 // ============ DASHBOARD ============
-function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual, onNavMes, onMarcarReal, onEditar, onEliminar, syncStatus, onSync, scriptUrl, online }) {
-  const [hidden, setHidden] = useState(false);
+function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual, onNavMes, onMarcarReal, onEditar, onEliminar, syncStatus, onSync, scriptUrl, online, onVerIngresos, onVerGastos, onVerAnalisis }) {
+  const [hidden, setHidden] = useState(true);
   const M = (v, mon) => hidden ? `${mon} ••••` : formatMonto(v, mon);
 
   const findCat = (tipo, id) => {
@@ -619,11 +674,7 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
   const ultimos = useMemo(() => {
     return [...txDelMes]
       .filter(t => t.tipoRegistro === 'real')
-      .sort((a, b) => {
-        const cmp = (b.fecha || '').localeCompare(a.fecha || '');
-        if (cmp !== 0) return cmp;
-        return (b.hora || '').localeCompare(a.hora || '');
-      })
+      .sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
       .slice(0, 5);
   }, [txDelMes]);
 
@@ -699,7 +750,7 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
       </div>
 
       {/* Ejecución */}
-      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
+      <div onClick={onVerAnalisis} className={`rounded-2xl border p-4 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
         <div className="flex items-center justify-between mb-2">
           <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Ejecución</p>
           <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stats.ejecucion <= 80 ? 'bg-emerald-50 text-emerald-700' : stats.ejecucion <= 100 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
@@ -725,11 +776,11 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
               const c = findCat(tx.tipo, tx.categoria);
               const f = parseFechaLima(tx.fecha);
               return (
-                <div key={tx.id} className={`rounded-xl border p-3 flex items-center gap-3 ${D.bgCard} ${D.border}`}>
+                <div key={tx.id} onClick={() => onEditar(tx)} className={`rounded-xl border p-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
                   <div className="flex-1 min-w-0">
                     <p className={`font-medium text-sm truncate ${D.text}`}>{tx.detalle || c.nombre}</p>
-                    <p className={`text-[11px] ${D.textMuted}`}>{formatFechaCorta(f)}{tx.hora ? ` ${tx.hora}` : ''} · {c.nombre}</p>
+                    <p className={`text-[11px] ${D.textMuted}`}>{formatFechaCorta(f)}{extraerHora(tx.fecha) ? ` ${extraerHora(tx.fecha)}` : ''} · {c.nombre}</p>
                   </div>
                   <div className={`font-serif font-semibold text-sm ${tx.tipo === 'gasto' ? D.text : 'text-emerald-600'}`}>
                     {tx.tipo === 'gasto' ? '−' : '+'}{formatMonto(tx.monto, config.moneda).replace(config.moneda + ' ', '')}
@@ -745,8 +796,16 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
 }
 
 // ============ REGISTRO ============
-function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, onNavMes, onMarcarReal, onEditar, onEliminar }) {
-  const [filtro, setFiltro] = useState('todos');
+function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, onNavMes, onMarcarReal, onEditar, onEliminar, filtroInicial, onFiltroUsado }) {
+  const [filtro, setFiltro] = useState(filtroInicial || 'real');
+  
+  // Si viene un filtro externo, aplicarlo
+  React.useEffect(() => {
+    if (filtroInicial) {
+      setFiltro(filtroInicial);
+      onFiltroUsado?.();
+    }
+  }, [filtroInicial]);
   const findCat = (tipo, id) => {
     const cats = tipo === 'gasto' ? catGasto : catIngreso;
     return cats.find(c => c.id === id) || { emoji: '📦', nombre: (id||'Otros').replace(/_/g,' '), color: '#8D99AE' };
@@ -758,10 +817,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
     else if (filtro === 'real') f = f.filter(t => t.tipoRegistro === 'real');
     else if (filtro === 'gasto') f = f.filter(t => t.tipo === 'gasto');
     else if (filtro === 'ingreso') f = f.filter(t => t.tipo === 'ingreso');
-    return f.sort((a, b) => {
-      const c = (b.fecha || '').localeCompare(a.fecha || '');
-      return c !== 0 ? c : (b.hora || '').localeCompare(a.hora || '');
-    });
+    return f.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
   }, [transacciones, filtro]);
 
   return (
@@ -800,7 +856,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
             const f = parseFechaLima(tx.fecha);
             const esProy = tx.tipoRegistro === 'proyectado';
             return (
-              <div key={tx.id} className={`rounded-xl border p-3 flex items-center gap-3 ${D.bgCard} ${D.border}`}>
+              <div key={tx.id} onClick={() => onEditar(tx)} className={`rounded-xl border p-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
@@ -808,7 +864,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
                     {esProy && <span className="text-[8px] uppercase tracking-wide bg-stone-200 text-stone-600 px-1 py-0.5 rounded font-bold">Proy</span>}
                     {tx.grupoId && <Repeat className="w-3 h-3 text-stone-400" />}
                   </div>
-                  <p className={`text-[11px] ${D.textMuted}`}>{formatFechaCorta(f)}{tx.hora ? ` ${tx.hora}` : ''} · {c.nombre}</p>
+                  <p className={`text-[11px] ${D.textMuted}`}>{formatFechaCorta(f)}{extraerHora(tx.fecha) ? ` ${extraerHora(tx.fecha)}` : ''} · {c.nombre}</p>
                 </div>
                 <div className={`font-serif font-semibold text-sm ${tx.tipo === 'gasto' ? D.text : 'text-emerald-600'}`}>
                   {tx.tipo === 'gasto' ? '−' : '+'}{formatMonto(tx.monto, config.moneda).replace(config.moneda + ' ', '')}
@@ -824,17 +880,16 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
 
 // ============ ANÁLISIS ============
 function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
-  const [filtro, setFiltro] = useState('6m'); // 3m | 6m | year | all
+  const [filtro, setFiltro] = useState('6m'); // 3m | 6m | year
   const [vistaDetalle, setVistaDetalle] = useState(false);
 
   // Obtener rango según filtro
   const meses = useMemo(() => {
-    const hoy = nowLima();
+    const hoy = nowLocal();
     let desde;
     if (filtro === '3m') { desde = new Date(hoy); desde.setMonth(desde.getMonth() - 3); }
     else if (filtro === '6m') { desde = new Date(hoy); desde.setMonth(desde.getMonth() - 6); }
-    else if (filtro === 'year') { desde = new Date(hoy.getFullYear(), 0, 1); }
-    else { desde = new Date(2020, 0, 1); }
+    else { desde = new Date(hoy.getFullYear(), 0, 1); }
 
     // Agrupar por mes financiero
     const rangos = [];
@@ -845,7 +900,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
       if (!rangos.find(r => r.key === key)) {
         const txs = transacciones.filter(t => {
           if (!t.fecha) return false;
-          const f = parseFechaLima(t.fecha);
+          const f = parseFechaLima(extraerFecha(t.fecha));
           return f >= rango.inicio && f <= rango.fin;
         });
         const gp = txs.filter(t => t.tipo === 'gasto' && t.tipoRegistro === 'proyectado').reduce((s,t) => s + Number(t.monto), 0);
@@ -877,13 +932,15 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
     }).sort((a, b) => Math.max(b.proy, b.real) - Math.max(a.proy, a.real));
   }, [mesActual, catGasto]);
 
+  const [stickyChart, setStickyChart] = useState(false);
+
   return (
     <div className="space-y-4 animate-fade-in">
       <h1 className={`font-serif text-2xl font-semibold ${D.text}`}>Análisis</h1>
 
       {/* Filtros de período */}
       <div className="flex gap-1.5">
-        {[{ id: '3m', l: '3 meses' }, { id: '6m', l: '6 meses' }, { id: 'year', l: 'Año' }, { id: 'all', l: 'Todo' }].map(f => (
+        {[{ id: '3m', l: '3 meses' }, { id: '6m', l: '6 meses' }, { id: 'year', l: 'Año' }].map(f => (
           <button key={f.id} onClick={() => setFiltro(f.id)}
             className={`flex-1 py-2 rounded-xl text-xs font-medium border transition ${filtro === f.id ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
             {f.l}
@@ -892,8 +949,13 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
       </div>
 
       {/* Gráfico de barras mes a mes */}
-      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
-        <p className={`text-[10px] uppercase tracking-widest mb-3 ${D.textMuted}`}>Gastos: Proyectado vs Real</p>
+      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border} ${stickyChart ? 'sticky top-0 z-10 shadow-lg' : ''}`}>
+        <div className="flex items-center justify-between mb-3">
+          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Gastos: Proyectado vs Real</p>
+          <button onClick={() => setStickyChart(s => !s)} className={`p-1.5 rounded-full transition ${stickyChart ? 'bg-amber-100 text-amber-700' : D.bgMuted + ' ' + D.textMuted}`} title={stickyChart ? 'Desfijar' : 'Fijar gráfico'}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill={stickyChart ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
+          </button>
+        </div>
         <div className="flex items-end gap-1 h-40">
           {meses.map(m => {
             const hProy = (m.gp / maxGasto) * 100;
@@ -939,7 +1001,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
                 </div>
                 <div className={`h-1.5 rounded-full overflow-hidden ${D.bgMuted}`}>
                   <div className={`h-full transition-all ${c.ejec <= 80 ? 'bg-emerald-500' : c.ejec <= 100 ? 'bg-amber-500' : 'bg-red-500'}`}
-                    style={{ width: `${Math.min(c.ejec / 1.5, 100)}%` }} />
+                    style={{ width: `${Math.min(c.ejec, 100)}%` }} />
                 </div>
               </div>
             ))}
@@ -958,7 +1020,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
   const [subcategoria, setSubcategoria] = useState(tx?.subcategoria || '');
   const [detalle, setDetalle] = useState(tx?.detalle || '');
   const [monto, setMonto] = useState(tx?.monto || '');
-  const [fecha, setFecha] = useState(tx?.fecha || toISODate(nowLima()));
+  const [fecha, setFecha] = useState(tx?.fecha || toISODate(nowLocal()));
   const [veces, setVeces] = useState(1);
   const [showAllCats, setShowAllCats] = useState(false);
   const cats = tipo === 'gasto' ? catGasto : catIngreso;
@@ -966,7 +1028,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
 
   const submit = () => {
     if (!categoria || !monto) return;
-    onGuardar({ ...(tx?.id ? { id: tx.id, grupoId: tx.grupoId, hora: tx.hora } : {}),
+    onGuardar({ ...(tx?.id ? { id: tx.id, grupoId: tx.grupoId } : {}),
       tipo, tipoRegistro, categoria, subcategoria, detalle,
       monto: parseFloat(monto), fecha, persona: config.persona, veces: editando ? 1 : veces });
   };
@@ -1012,7 +1074,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
               {cats.length > 6 && <button onClick={() => setShowAllCats(!showAllCats)} className={`text-[11px] font-medium ${D.accentText}`}>{showAllCats ? '↑ Menos' : '↓ Todas'}</button>}
             </div>
             <div className="grid grid-cols-4 gap-1.5">
-              {(showAllCats ? cats : cats.slice(0,8)).map(c => (
+              {(showAllCats ? cats : cats.slice(0,12)).map(c => (
                 <button key={c.id} onClick={() => setCategoria(c.id)}
                   className={`p-2 rounded-xl border-2 flex flex-col items-center gap-0.5 transition ${D.bgCard} ${categoria === c.id ? '' : D.border}`}
                   style={{ borderColor: categoria === c.id ? c.color : undefined }}>
@@ -1059,7 +1121,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
 
 // ============ CONFIG ============
 function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onEliminarCat,
-  onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark }) {
+  onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark, paises }) {
   const [showCats, setShowCats] = useState(null);
   const [nuevaCat, setNuevaCat] = useState({ nombre: '', emoji: '📦', color: '#8D99AE' });
   const [editandoCat, setEditandoCat] = useState(null);
@@ -1104,6 +1166,20 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
           {['S/.','$','€','£'].map(m => (
             <button key={m} onClick={() => setConfig({ ...config, moneda: m })}
               className={`flex-1 py-2 rounded-xl border-2 font-serif text-lg ${config.moneda === m ? 'border-stone-900 bg-stone-900 text-white' : D.border + ' ' + D.bgCard}`}>{m}</button>
+          ))}
+        </div>
+      </Sec>
+
+      {/* País */}
+      <Sec D={D} t="País">
+        <p className={`text-xs mb-2 ${D.textMuted}`}>La zona horaria y moneda se ajustan según tu país</p>
+        <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto">
+          {(paises || []).map(p => (
+            <button key={p.code} onClick={() => { setConfig({ ...config, pais: p.code, moneda: p.moneda }); APP_TZ = p.tz; }}
+              className={`p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${config.pais === p.code ? 'border-stone-900 ' + D.bgMuted : D.border + ' ' + D.bgCard}`}>
+              <span className="text-lg">{p.emoji}</span>
+              <span className={`font-medium ${D.text}`}>{p.nombre}</span>
+            </button>
           ))}
         </div>
       </Sec>
