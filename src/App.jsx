@@ -6,29 +6,31 @@ import {
 } from 'lucide-react';
 
 // ============ CATEGORÍAS POR DEFECTO ============
-const DEFAULT_CATEGORIAS_GASTO = [
-  { id: 'fijos_vivienda', nombre: 'Fijos Vivienda', emoji: '🏠', color: '#E8B4B8' },
-  { id: 'alimentacion', nombre: 'Alimentación', emoji: '🍽️', color: '#F4A261' },
-  { id: 'transporte', nombre: 'Transporte', emoji: '🚌', color: '#2A9D8F' },
-  { id: 'casa_padres', nombre: 'Casa Padres', emoji: '👨‍👩‍👧', color: '#E76F51' },
-  { id: 'salud', nombre: 'Salud', emoji: '💊', color: '#06A77D' },
-  { id: 'aseo_personal', nombre: 'Aseo Personal', emoji: '🧴', color: '#9D4EDD' },
-  { id: 'mascota', nombre: 'Mascota', emoji: '🐾', color: '#D4A373' },
-  { id: 'educacion', nombre: 'Educación', emoji: '📚', color: '#3A86FF' },
-  { id: 'servicios_digitales', nombre: 'Servicios Digitales', emoji: '📱', color: '#8338EC' },
-  { id: 'inversion', nombre: 'Inversión', emoji: '📈', color: '#06D6A0' },
-  { id: 'ahorro', nombre: 'Ahorro', emoji: '💰', color: '#FFD60A' },
-  { id: 'deuda', nombre: 'Deuda', emoji: '💳', color: '#EF233C' },
-  { id: 'cumpleanos', nombre: 'Cumpleaños', emoji: '🎂', color: '#FF006E' },
-  { id: 'otros', nombre: 'Otros', emoji: '📦', color: '#8D99AE' },
+// Sin categorías por defecto — el usuario las crea o importa sugeridas
+const DEFAULT_CATEGORIAS_GASTO = [];
+const DEFAULT_CATEGORIAS_INGRESO = [];
+
+// Categorías sugeridas estándar (el usuario puede importarlas con un botón)
+const CATEGORIAS_SUGERIDAS_GASTO = [
+  { id: 'vivienda', nombre: 'Vivienda', emoji: '🏠', color: '#E8B4B8', orden: 1 },
+  { id: 'alimentacion', nombre: 'Alimentación', emoji: '🍽️', color: '#F4A261', orden: 2 },
+  { id: 'transporte', nombre: 'Transporte', emoji: '🚌', color: '#2A9D8F', orden: 3 },
+  { id: 'salud', nombre: 'Salud', emoji: '💊', color: '#06A77D', orden: 4 },
+  { id: 'educacion', nombre: 'Educación', emoji: '📚', color: '#3A86FF', orden: 5 },
+  { id: 'entretenimiento', nombre: 'Entretenimiento', emoji: '🎬', color: '#FF006E', orden: 6 },
+  { id: 'ropa', nombre: 'Ropa', emoji: '👕', color: '#9D4EDD', orden: 7 },
+  { id: 'suscripciones', nombre: 'Suscripciones', emoji: '📱', color: '#8338EC', orden: 8 },
+  { id: 'deudas', nombre: 'Deudas', emoji: '💳', color: '#EF233C', orden: 9 },
+  { id: 'ahorro', nombre: 'Ahorro', emoji: '💰', color: '#FFD60A', orden: 10 },
+  { id: 'mascotas', nombre: 'Mascotas', emoji: '🐾', color: '#D4A373', orden: 11 },
+  { id: 'otros', nombre: 'Otros', emoji: '📦', color: '#8D99AE', orden: 12 },
 ];
 
-const DEFAULT_CATEGORIAS_INGRESO = [
-  { id: 'salario', nombre: 'Salario', emoji: '💼', color: '#06A77D' },
-  { id: 'cts', nombre: 'CTS', emoji: '🏦', color: '#3A86FF' },
-  { id: 'gratificacion', nombre: 'Gratificación', emoji: '🎁', color: '#FF006E' },
-  { id: 'extra', nombre: 'Ingreso Extra', emoji: '✨', color: '#FFD60A' },
-  { id: 'utilidades', nombre: 'Utilidades', emoji: '💵', color: '#06D6A0' },
+const CATEGORIAS_SUGERIDAS_INGRESO = [
+  { id: 'salario', nombre: 'Salario', emoji: '💼', color: '#06A77D', orden: 1 },
+  { id: 'freelance', nombre: 'Freelance / Extra', emoji: '💵', color: '#06D6A0', orden: 2 },
+  { id: 'inversiones', nombre: 'Inversiones', emoji: '📈', color: '#3A86FF', orden: 3 },
+  { id: 'bonos', nombre: 'Bonos / Regalos', emoji: '🎁', color: '#FF006E', orden: 4 },
 ];
 
 const DEFAULT_CONFIG = {
@@ -278,6 +280,18 @@ export default function App() {
             const i = remoteCats.filter(c => c.tipo === 'ingreso').sort((a,b) => (a.orden||99)-(b.orden||99));
             if (g.length) { setCatGasto(g); saveL(KEYS.CAT_G, g); }
             if (i.length) { setCatIngreso(i); saveL(KEYS.CAT_I, i); }
+            // Cargar país desde Sheets
+            const paisCfg = remoteCats.find(c => c.id === '_config_pais');
+            if (paisCfg) {
+              const paisData = PAISES_LATAM.find(p => p.code === paisCfg.color);
+              if (paisData) {
+                cfg.pais = paisData.code;
+                cfg.moneda = paisData.moneda;
+                APP_TZ = paisData.tz;
+                setConfig({...cfg});
+                saveL(KEYS.CONFIG, cfg);
+              }
+            }
           }
           setSyncStatus('idle');
         } catch { setSyncStatus('error'); }
@@ -474,6 +488,7 @@ export default function App() {
           <Config config={config} setConfig={(c) => { setConfig(c); saveL(KEYS.CONFIG, c); showToast('Guardado ✓'); }}
             catGasto={catGasto} catIngreso={catIngreso} onGuardarCat={guardarCat} onEliminarCat={eliminarCat}
             paises={PAISES_LATAM}
+            sugerGasto={CATEGORIAS_SUGERIDAS_GASTO} sugerIngreso={CATEGORIAS_SUGERIDAS_INGRESO}
             onExport={exportarCSV} totalTx={transacciones.length} scriptUrl={scriptUrl}
             setScriptUrl={(u) => { setScriptUrl(u); saveL(KEYS.SCRIPT_URL, u); }}
             transacciones={transacciones} onSincronizar={sincronizar} syncStatus={syncStatus} D={D} isDark={isDark} />
@@ -599,12 +614,12 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
           <span className={`font-serif text-2xl ${D.textMuted}`}>{config.moneda}</span>
           <span className={`font-serif text-6xl font-bold tracking-tight ${monto ? D.text : D.textMuted}`}>{monto || '0'}</span>
         </div>
-        {/* Real/Proyectado */}
+        {/* Real/Presupuesto */}
         <div className={`flex gap-2 justify-center mt-3 ${D.textMuted}`}>
           {['real','proyectado'].map(t => (
             <button key={t} onClick={() => setTipoRegistro(t)}
               className={`px-3 py-1 rounded-full text-xs font-medium transition ${tipoRegistro === t ? 'bg-stone-900 text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
-              {t === 'real' ? '⚡ Real' : '📅 Proy'}
+              {t === 'real' ? '⚡ Real' : '📅 Presup.'}
             </button>
           ))}
         </div>
@@ -723,7 +738,7 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
           </div>
           <div className={`mt-2 font-serif font-semibold tracking-tight ${hidden ? 'text-3xl' : 'text-4xl'}`}>{M(stats.balanceReal, config.moneda)}</div>
           <div className="mt-3 flex items-center gap-3 text-sm">
-            <div><span className="text-stone-400 text-xs">Proy</span><div className="font-medium">{M(stats.balanceProy, config.moneda)}</div></div>
+            <div><span className="text-stone-400 text-xs">Presup.</span><div className="font-medium">{M(stats.balanceProy, config.moneda)}</div></div>
             <div className="h-7 w-px bg-stone-700" />
             <div><span className="text-stone-400 text-xs">Diff</span>
               <div className={`font-medium ${hidden ? '' : (stats.balanceReal-stats.balanceProy >= 0 ? 'text-emerald-400' : 'text-amber-400')}`}>
@@ -736,9 +751,9 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
 
       {/* Cards Ingreso/Gasto */}
       <div className="grid grid-cols-2 gap-2.5">
-        {[{ l: 'Ingresos', r: stats.ingresoReal, p: stats.ingresoProy, icon: TrendingUp, color: 'emerald' },
-          { l: 'Gastos', r: stats.gastoReal, p: stats.gastoProy, icon: TrendingDown, color: 'red' }].map(c => (
-          <div key={c.l} className={`rounded-2xl border p-3.5 ${D.bgCard} ${D.border}`}>
+        {[{ l: 'Ingresos', r: stats.ingresoReal, p: stats.ingresoProy, icon: TrendingUp, color: 'emerald', action: onVerIngresos },
+          { l: 'Gastos', r: stats.gastoReal, p: stats.gastoProy, icon: TrendingDown, color: 'red', action: onVerGastos }].map(c => (
+          <div key={c.l} onClick={c.action} className={`rounded-2xl border p-3.5 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
             <div className="flex items-center gap-2 mb-2">
               <div className={`w-6 h-6 rounded-full flex items-center justify-center bg-${c.color}-100 text-${c.color}-700`}><c.icon className="w-3.5 h-3.5" /></div>
               <span className={`text-[10px] uppercase tracking-widest font-medium ${D.textMuted}`}>{c.l}</span>
@@ -839,7 +854,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
         {['todos','real','proyectado','gasto','ingreso'].map(f => (
           <button key={f} onClick={() => setFiltro(f)}
             className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition capitalize ${filtro === f ? 'bg-stone-900 text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
-            {f === 'todos' ? 'Todos' : f}
+            {f === 'todos' ? 'Todos' : f === 'proyectado' ? 'Presupuesto' : f === 'real' ? 'Real' : f === 'gasto' ? 'Gastos' : 'Ingresos'}
           </button>
         ))}
       </div>
@@ -861,7 +876,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <p className={`font-medium text-sm truncate ${D.text}`}>{tx.detalle || c.nombre}</p>
-                    {esProy && <span className="text-[8px] uppercase tracking-wide bg-stone-200 text-stone-600 px-1 py-0.5 rounded font-bold">Proy</span>}
+                    {esProy && <span className="text-[8px] uppercase tracking-wide bg-stone-200 text-stone-600 px-1 py-0.5 rounded font-bold">Presup.</span>}
                     {tx.grupoId && <Repeat className="w-3 h-3 text-stone-400" />}
                   </div>
                   <p className={`text-[11px] ${D.textMuted}`}>{formatFechaCorta(f)}{extraerHora(tx.fecha) ? ` ${extraerHora(tx.fecha)}` : ''} · {c.nombre}</p>
@@ -951,7 +966,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
       {/* Gráfico de barras mes a mes */}
       <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border} ${stickyChart ? 'sticky top-0 z-10 shadow-lg' : ''}`}>
         <div className="flex items-center justify-between mb-3">
-          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Gastos: Proyectado vs Real</p>
+          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Gastos: Presupuesto vs Real</p>
           <button onClick={() => setStickyChart(s => !s)} className={`p-1.5 rounded-full transition ${stickyChart ? 'bg-amber-100 text-amber-700' : D.bgMuted + ' ' + D.textMuted}`} title={stickyChart ? 'Desfijar' : 'Fijar gráfico'}>
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill={stickyChart ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
           </button>
@@ -975,7 +990,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
           })}
         </div>
         <div className="flex items-center gap-4 mt-3">
-          <div className="flex items-center gap-1.5"><div className={`w-3 h-3 rounded-sm ${D.bgMuted}`} /><span className={`text-[10px] ${D.textMuted}`}>Proyectado</span></div>
+          <div className="flex items-center gap-1.5"><div className={`w-3 h-3 rounded-sm ${D.bgMuted}`} /><span className={`text-[10px] ${D.textMuted}`}>Presupuesto</span></div>
           <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-amber-500" /><span className={`text-[10px] ${D.textMuted}`}>Real</span></div>
         </div>
       </div>
@@ -1062,7 +1077,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
               {['real','proyectado'].map(t => (
                 <button key={t} onClick={() => setTipoRegistro(t)}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition ${tipoRegistro === t ? 'bg-stone-900 text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
-                  {t === 'real' ? '⚡ Real' : '📅 Proy'}
+                  {t === 'real' ? '⚡ Real' : '📅 Presup.'}
                 </button>
               ))}
             </div>
@@ -1071,10 +1086,9 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Categoría</label>
-              {cats.length > 6 && <button onClick={() => setShowAllCats(!showAllCats)} className={`text-[11px] font-medium ${D.accentText}`}>{showAllCats ? '↑ Menos' : '↓ Todas'}</button>}
             </div>
-            <div className="grid grid-cols-4 gap-1.5">
-              {(showAllCats ? cats : cats.slice(0,12)).map(c => (
+            <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto">
+              {cats.map(c => (
                 <button key={c.id} onClick={() => setCategoria(c.id)}
                   className={`p-2 rounded-xl border-2 flex flex-col items-center gap-0.5 transition ${D.bgCard} ${categoria === c.id ? '' : D.border}`}
                   style={{ borderColor: categoria === c.id ? c.color : undefined }}>
@@ -1121,7 +1135,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
 
 // ============ CONFIG ============
 function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onEliminarCat,
-  onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark, paises }) {
+  onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark, paises, sugerGasto, sugerIngreso }) {
   const [showCats, setShowCats] = useState(null);
   const [nuevaCat, setNuevaCat] = useState({ nombre: '', emoji: '📦', color: '#8D99AE' });
   const [editandoCat, setEditandoCat] = useState(null);
@@ -1175,7 +1189,12 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
         <p className={`text-xs mb-2 ${D.textMuted}`}>La zona horaria y moneda se ajustan según tu país</p>
         <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto">
           {(paises || []).map(p => (
-            <button key={p.code} onClick={() => { setConfig({ ...config, pais: p.code, moneda: p.moneda }); APP_TZ = p.tz; }}
+            <button key={p.code} onClick={() => { 
+                const newCfg = { ...config, pais: p.code, moneda: p.moneda };
+                setConfig(newCfg); APP_TZ = p.tz;
+                // Guardar país en Sheets como categoría especial
+                if (scriptUrl) { try { apiSaveCat(scriptUrl, { id: '_config_pais', tipo: 'config', nombre: p.nombre, emoji: p.emoji, color: p.code, orden: 0, activo: true }); } catch {} }
+              }}
               className={`p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${config.pais === p.code ? 'border-stone-900 ' + D.bgMuted : D.border + ' ' + D.bgCard}`}>
               <span className="text-lg">{p.emoji}</span>
               <span className={`font-medium ${D.text}`}>{p.nombre}</span>
@@ -1257,15 +1276,41 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1.5">
               {cats.map(c => (
-                <div key={c.id} className={`rounded-xl border p-3 flex items-center gap-3 ${D.bgCard} ${D.border}`}>
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
+                <div key={c.id} className={`rounded-xl border p-3 flex items-center gap-2 ${D.bgCard} ${D.border}`}>
+                  {/* Flechas de orden */}
+                  <div className="flex flex-col gap-0.5">
+                    <button onClick={() => {
+                      const idx = cats.indexOf(c);
+                      if (idx <= 0) return;
+                      const newCats = [...cats];
+                      [newCats[idx-1], newCats[idx]] = [newCats[idx], newCats[idx-1]];
+                      newCats.forEach((cat, j) => onGuardarCat({ ...cat, orden: j+1 }, showCats));
+                    }} className={`text-xs p-0.5 rounded ${D.textMuted} hover:${D.bgMuted}`}>▲</button>
+                    <button onClick={() => {
+                      const idx = cats.indexOf(c);
+                      if (idx >= cats.length - 1) return;
+                      const newCats = [...cats];
+                      [newCats[idx], newCats[idx+1]] = [newCats[idx+1], newCats[idx]];
+                      newCats.forEach((cat, j) => onGuardarCat({ ...cat, orden: j+1 }, showCats));
+                    }} className={`text-xs p-0.5 rounded ${D.textMuted} hover:${D.bgMuted}`}>▼</button>
+                  </div>
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
                   <span className={`flex-1 text-sm font-medium ${D.text}`}>{c.nombre}</span>
-                  <button onClick={() => { setEditandoCat(c); setNuevaCat({...c}); }} className={`text-xs px-2 py-1 rounded border ${D.bgMuted} ${D.border} ${D.textSub}`}>Editar</button>
+                  <button onClick={() => { setEditandoCat(c); setNuevaCat({...c}); }} className={`text-xs px-2 py-1 rounded border ${D.bgMuted} ${D.border} ${D.textSub}`}>✏️</button>
                   <button onClick={() => { if(confirm('¿Eliminar?')) onEliminarCat(c.id, showCats); }} className="text-red-500 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               ))}
             </div>
             <div className={`border-t px-5 py-3 ${D.bgMuted} ${D.border}`}>
+              {/* Botón importar sugeridas */}
+              {((showCats === 'gasto' ? catGasto : catIngreso).length === 0) && (
+                <button onClick={() => {
+                  const suger = showCats === 'gasto' ? sugerGasto : sugerIngreso;
+                  suger.forEach(c => onGuardarCat({ ...c, activo: true }, showCats));
+                }} className="w-full mb-3 py-2.5 rounded-xl border-2 border-dashed text-sm font-medium transition border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100">
+                  ✨ Agregar categorías sugeridas ({(showCats === 'gasto' ? sugerGasto : sugerIngreso).length})
+                </button>
+              )}
               <div className="flex gap-2 mb-2">
                 <input type="text" value={nuevaCat.emoji} onChange={e => setNuevaCat({...nuevaCat, emoji: e.target.value})} maxLength={2}
                   className={`w-12 px-2 py-2 border rounded-lg text-center text-xl ${D.bgInput} ${D.border}`} />
