@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Wallet, TrendingUp, TrendingDown, Plus, Trash2, Calendar,
   PieChart, BarChart3, Settings, ChevronLeft, ChevronRight,
-  Download, Upload, X, Check, AlertCircle, Repeat, Zap, WifiOff, RefreshCw
+  Download, Upload, X, Check, AlertCircle, Repeat, Zap, WifiOff, RefreshCw, GripVertical
 } from 'lucide-react';
 
 // ============ CATEGORÍAS POR DEFECTO ============
@@ -283,26 +283,26 @@ export default function App() {
             apiList(url), apiListCats(url).catch(() => null),
           ]);
           setTransacciones(remoteTxs); saveL(KEYS.TX_CACHE, remoteTxs);
-          if (remoteCats?.length > 0) {
+          if (remoteCats) {
             const g = remoteCats.filter(c => c.tipo === 'gasto').sort((a,b) => (a.orden||99)-(b.orden||99));
             const i = remoteCats.filter(c => c.tipo === 'ingreso').sort((a,b) => (a.orden||99)-(b.orden||99));
-            if (g.length) { setCatGasto(g); saveL(KEYS.CAT_G, g); }
-            if (i.length) { setCatIngreso(i); saveL(KEYS.CAT_I, i); }
-            // Cargar país desde App_Settings
-            try {
-              const settings = await apiListSettings(url);
-              if (settings.pais) {
-                const paisData = PAISES_LATAM.find(p => p.code === settings.pais);
-                if (paisData) {
-                  cfg.pais = paisData.code;
-                  cfg.moneda = paisData.moneda;
-                  APP_TZ = paisData.tz;
-                  setConfig({...cfg});
-                  saveL(KEYS.CONFIG, cfg);
-                }
-              }
-            } catch {}
+            setCatGasto(g); saveL(KEYS.CAT_G, g);
+            setCatIngreso(i); saveL(KEYS.CAT_I, i);
           }
+          // Cargar país desde App_Settings
+          try {
+            const settings = await apiListSettings(url);
+            if (settings.pais) {
+              const paisData = PAISES_LATAM.find(p => p.code === settings.pais);
+              if (paisData) {
+                cfg.pais = paisData.code;
+                cfg.moneda = paisData.moneda;
+                APP_TZ = paisData.tz;
+                setConfig({...cfg});
+                saveL(KEYS.CONFIG, cfg);
+              }
+            }
+          } catch {}
           setSyncStatus('idle');
         } catch { setSyncStatus('error'); }
       }
@@ -327,11 +327,11 @@ export default function App() {
       if (pending.length > 0) clearPending();
       const [remoteTxs, remoteCats] = await Promise.all([apiList(scriptUrl), apiListCats(scriptUrl).catch(() => null)]);
       setTransacciones(remoteTxs); saveL(KEYS.TX_CACHE, remoteTxs);
-      if (remoteCats?.length > 0) {
+      if (remoteCats) {
         const g = remoteCats.filter(c => c.tipo === 'gasto').sort((a,b) => (a.orden||99)-(b.orden||99));
         const i = remoteCats.filter(c => c.tipo === 'ingreso').sort((a,b) => (a.orden||99)-(b.orden||99));
-        if (g.length) { setCatGasto(g); saveL(KEYS.CAT_G, g); }
-        if (i.length) { setCatIngreso(i); saveL(KEYS.CAT_I, i); }
+        setCatGasto(g); saveL(KEYS.CAT_G, g);
+        setCatIngreso(i); saveL(KEYS.CAT_I, i);
       }
       setSyncStatus('idle'); showToast('Sincronizado ✓');
     } catch { setSyncStatus('error'); showToast('Error al sincronizar', 'error'); }
@@ -541,10 +541,10 @@ export default function App() {
           onCerrar={() => { setShowFormCompleto(false); setEditTx(null); }} D={D} />
       )}
 
-      {/* ===== TOAST ===== */}
+      {/* ===== TOAST (above bottom nav, safe from iPhone notch) ===== */}
       {toast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
-          <div className={`px-4 py-2.5 rounded-full shadow-lg text-sm font-medium ${toast.tipo === 'success' ? 'bg-stone-900 text-white' : 'bg-red-500 text-white'}`}>
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+          <div className={`px-5 py-2.5 rounded-full shadow-lg text-sm font-medium ${toast.tipo === 'success' ? 'bg-stone-900 text-white' : 'bg-red-500 text-white'}`}>
             {toast.msg}
           </div>
         </div>
@@ -1199,11 +1199,12 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
         <p className={`text-xs mb-2 ${D.textMuted}`}>La zona horaria y moneda se ajustan según tu país</p>
         <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto">
           {(paises || []).map(p => (
-            <button key={p.code} onClick={() => { 
+            <button key={p.code} onClick={async () => {
                 const newCfg = { ...config, pais: p.code, moneda: p.moneda };
                 setConfig(newCfg); APP_TZ = p.tz;
+                saveL(KEYS.CONFIG, newCfg);
                 // Guardar país en App_Settings
-                if (scriptUrl) { try { apiSaveSetting(scriptUrl, 'pais', p.code); } catch {} }
+                if (scriptUrl) { try { await apiSaveSetting(scriptUrl, 'pais', p.code); } catch {} }
               }}
               className={`p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${config.pais === p.code ? 'border-stone-900 ' + D.bgMuted : D.border + ' ' + D.bgCard}`}>
               <span className="text-lg">{p.emoji}</span>
@@ -1276,7 +1277,7 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
         </div>
       </Sec>
 
-      {/* Modal categorías */}
+      {/* Modal categorías — drag to reorder + edit inline */}
       {showCats && (
         <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
           <div className={`w-full max-w-md rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up shadow-2xl ${D.bg}`}>
@@ -1285,25 +1286,23 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
               <button onClick={() => setShowCats(null)} className={`p-1.5 rounded-full ${D.bgCard}`}><X className={`w-5 h-5 ${D.text}`} /></button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1.5">
-              {cats.map(c => (
-                <div key={c.id} className={`rounded-xl border p-3 flex items-center gap-2 ${D.bgCard} ${D.border}`}>
-                  {/* Flechas de orden */}
-                  <div className="flex flex-col gap-0.5">
-                    <button onClick={() => {
-                      const idx = cats.indexOf(c);
-                      if (idx <= 0) return;
-                      const newCats = [...cats];
-                      [newCats[idx-1], newCats[idx]] = [newCats[idx], newCats[idx-1]];
-                      newCats.forEach((cat, j) => onGuardarCat({ ...cat, orden: j+1 }, showCats));
-                    }} className={`text-xs p-0.5 rounded ${D.textMuted} hover:${D.bgMuted}`}>▲</button>
-                    <button onClick={() => {
-                      const idx = cats.indexOf(c);
-                      if (idx >= cats.length - 1) return;
-                      const newCats = [...cats];
-                      [newCats[idx], newCats[idx+1]] = [newCats[idx+1], newCats[idx]];
-                      newCats.forEach((cat, j) => onGuardarCat({ ...cat, orden: j+1 }, showCats));
-                    }} className={`text-xs p-0.5 rounded ${D.textMuted} hover:${D.bgMuted}`}>▼</button>
-                  </div>
+              {cats.map((c, idx) => (
+                <div key={c.id}
+                  draggable
+                  onDragStart={(e) => { e.dataTransfer.setData('text/plain', idx.toString()); e.currentTarget.style.opacity = '0.5'; }}
+                  onDragEnd={(e) => { e.currentTarget.style.opacity = '1'; }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                    if (fromIdx === idx) return;
+                    const newCats = [...cats];
+                    const [moved] = newCats.splice(fromIdx, 1);
+                    newCats.splice(idx, 0, moved);
+                    newCats.forEach((cat, j) => onGuardarCat({ ...cat, orden: j + 1 }, showCats));
+                  }}
+                  className={`rounded-xl border p-3 flex items-center gap-2 cursor-grab active:cursor-grabbing ${D.bgCard} ${D.border}`}>
+                  <GripVertical className={`w-4 h-4 flex-shrink-0 ${D.textMuted}`} />
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
                   <span className={`flex-1 text-sm font-medium ${D.text}`}>{c.nombre}</span>
                   <button onClick={() => { setEditandoCat(c); setNuevaCat({...c}); }} className={`text-xs px-2 py-1 rounded border ${D.bgMuted} ${D.border} ${D.textSub}`}>✏️</button>
