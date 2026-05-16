@@ -1203,7 +1203,8 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
                 const newCfg = { ...config, pais: p.code, moneda: p.moneda };
                 setConfig(newCfg); APP_TZ = p.tz;
                 // Guardar país en App_Settings
-                if (scriptUrl) { try { apiSaveSetting(scriptUrl, 'pais', p.code); } catch {} }}
+                if (scriptUrl) { try { apiSaveSetting(scriptUrl, 'pais', p.code); } catch {} }
+              }}
               className={`p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${config.pais === p.code ? 'border-stone-900 ' + D.bgMuted : D.border + ' ' + D.bgCard}`}>
               <span className="text-lg">{p.emoji}</span>
               <span className={`font-medium ${D.text}`}>{p.nombre}</span>
