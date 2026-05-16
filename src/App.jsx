@@ -90,27 +90,34 @@ const toISODate = (d) => {
 
 // Fecha + hora Lima como "2026-04-30T20:08"
 const toISOFechaHora = () => {
+const toISOFechaHora = () => {
   const n = nowLocal();
   const yyyy = n.getFullYear();
   const mm = String(n.getMonth() + 1).padStart(2, '0');
   const dd = String(n.getDate()).padStart(2, '0');
   const hh = String(n.getHours()).padStart(2, '0');
   const mi = String(n.getMinutes()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+  const ss = String(n.getSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
 };
 
 // Extraer solo la parte de fecha de un valor que puede ser "2026-04-30" o "2026-04-30T20:08"
 const extraerFecha = (s) => s ? s.substring(0, 10) : '';
 
 // Extraer solo la hora de "2026-04-30T20:08" -> "20:08", o '' si no tiene hora
-const extraerHora = (s) => (s && s.length > 10 && s.includes('T')) ? s.substring(11, 16) : '';
-
+const extraerHora = (s) => {
+  if (!s || s.length <= 10) return '';
+  const sep = s.indexOf('T') !== -1 ? s.indexOf('T') : s.indexOf(' ');
+  if (sep === -1 || sep >= s.length - 1) return '';
+  return s.substring(sep + 1, Math.min(sep + 6, s.length));
+};
+  
 const parseFechaLima = (s) => {
   if (!s) return new Date();
   // Soporta "2026-04-30" y "2026-04-30T20:08"
   const datePart = s.substring(0, 10);
   const [y, m, d] = datePart.split('-').map(Number);
-  if (s.length > 10 && s.includes('T')) {
+  if (s.length > 10 && (s.includes('T') || s.charAt(10) === ' ')) {
     const timePart = s.substring(11, 16);
     const [hh, mi] = timePart.split(':').map(Number);
     return new Date(y, m - 1, d, hh, mi, 0);
