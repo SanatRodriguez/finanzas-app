@@ -90,7 +90,6 @@ const toISODate = (d) => {
 
 // Fecha + hora Lima como "2026-04-30T20:08"
 const toISOFechaHora = () => {
-const toISOFechaHora = () => {
   const n = nowLocal();
   const yyyy = n.getFullYear();
   const mm = String(n.getMonth() + 1).padStart(2, '0');
@@ -198,6 +197,8 @@ const apiReplaceAll = (u, txs) => api(u, 'POST', { action: 'replaceAll', txs });
 const apiListCats = async (u) => { const r = await api(u, 'GET', { action: 'listCats' }); return r.data || []; };
 const apiSaveCat = (u, cat) => api(u, 'POST', { action: 'saveCat', cat });
 const apiDeleteCat = (u, id) => api(u, 'POST', { action: 'deleteCat', id });
+const apiListSettings = async (u) => { const r = await api(u, 'GET', { action: 'listSettings' }); return r.data || {}; };
+const apiSaveSetting = (u, key, value) => api(u, 'POST', { action: 'saveSetting', key, value });
 
 // ============ ONLINE STATUS ============
 function useOnline() {
@@ -287,18 +288,20 @@ export default function App() {
             const i = remoteCats.filter(c => c.tipo === 'ingreso').sort((a,b) => (a.orden||99)-(b.orden||99));
             if (g.length) { setCatGasto(g); saveL(KEYS.CAT_G, g); }
             if (i.length) { setCatIngreso(i); saveL(KEYS.CAT_I, i); }
-            // Cargar país desde Sheets
-            const paisCfg = remoteCats.find(c => c.id === '_config_pais');
-            if (paisCfg) {
-              const paisData = PAISES_LATAM.find(p => p.code === paisCfg.color);
-              if (paisData) {
-                cfg.pais = paisData.code;
-                cfg.moneda = paisData.moneda;
-                APP_TZ = paisData.tz;
-                setConfig({...cfg});
-                saveL(KEYS.CONFIG, cfg);
+            // Cargar país desde App_Settings
+            try {
+              const settings = await apiListSettings(url);
+              if (settings.pais) {
+                const paisData = PAISES_LATAM.find(p => p.code === settings.pais);
+                if (paisData) {
+                  cfg.pais = paisData.code;
+                  cfg.moneda = paisData.moneda;
+                  APP_TZ = paisData.tz;
+                  setConfig({...cfg});
+                  saveL(KEYS.CONFIG, cfg);
+                }
               }
-            }
+            } catch {}
           }
           setSyncStatus('idle');
         } catch { setSyncStatus('error'); }
@@ -1199,9 +1202,8 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
             <button key={p.code} onClick={() => { 
                 const newCfg = { ...config, pais: p.code, moneda: p.moneda };
                 setConfig(newCfg); APP_TZ = p.tz;
-                // Guardar país en Sheets como categoría especial
-                if (scriptUrl) { try { apiSaveCat(scriptUrl, { id: '_config_pais', tipo: 'config', nombre: p.nombre, emoji: p.emoji, color: p.code, orden: 0, activo: true }); } catch {} }
-              }}
+                // Guardar país en App_Settings
+                if (scriptUrl) { try { apiSaveSetting(scriptUrl, 'pais', p.code); } catch {} }}
               className={`p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${config.pais === p.code ? 'border-stone-900 ' + D.bgMuted : D.border + ' ' + D.bgCard}`}>
               <span className="text-lg">{p.emoji}</span>
               <span className={`font-medium ${D.text}`}>{p.nombre}</span>
