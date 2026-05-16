@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Wallet, TrendingUp, TrendingDown, Plus, Trash2, Calendar,
   PieChart, BarChart3, Settings, ChevronLeft, ChevronRight,
-  Download, Upload, X, Check, AlertCircle, Repeat, Zap, WifiOff, RefreshCw, GripVertical
+  Download, Upload, X, Check, AlertCircle, Repeat, Zap, WifiOff, RefreshCw
 } from 'lucide-react';
 
 // ============ CATEGORÍAS POR DEFECTO ============
@@ -293,16 +293,16 @@ export default function App() {
           try {
             const settings = await apiListSettings(url);
             if (settings.pais) {
-              const paisData = PAISES_LATAM.find(p => p.code === settings.pais);
-              if (paisData) {
-                cfg.pais = paisData.code;
-                cfg.moneda = paisData.moneda;
-                APP_TZ = paisData.tz;
-                setConfig({...cfg});
-                saveL(KEYS.CONFIG, cfg);
+                const paisData = PAISES_LATAM.find(p => p.code === settings.pais);
+                if (paisData) {
+                  cfg.pais = paisData.code;
+                  cfg.moneda = paisData.moneda;
+                  APP_TZ = paisData.tz;
+                  setConfig({...cfg});
+                  saveL(KEYS.CONFIG, cfg);
+                }
               }
-            }
-          } catch {}
+            } catch {}
           setSyncStatus('idle');
         } catch { setSyncStatus('error'); }
       }
@@ -495,13 +495,14 @@ export default function App() {
           ) : <OfflineMsg D={D} />
         )}
         {vista === 'config' && (
-          <Config config={config} setConfig={(c) => { setConfig(c); saveL(KEYS.CONFIG, c); showToast('Guardado ✓'); }}
+          <Config config={config} setConfig={(c) => { setConfig(c); saveL(KEYS.CONFIG, c); }}
             catGasto={catGasto} catIngreso={catIngreso} onGuardarCat={guardarCat} onEliminarCat={eliminarCat}
             paises={PAISES_LATAM}
             sugerGasto={CATEGORIAS_SUGERIDAS_GASTO} sugerIngreso={CATEGORIAS_SUGERIDAS_INGRESO}
             onExport={exportarCSV} totalTx={transacciones.length} scriptUrl={scriptUrl}
             setScriptUrl={(u) => { setScriptUrl(u); saveL(KEYS.SCRIPT_URL, u); }}
-            transacciones={transacciones} onSincronizar={sincronizar} syncStatus={syncStatus} D={D} isDark={isDark} />
+            transacciones={transacciones} onSincronizar={sincronizar} syncStatus={syncStatus} D={D} isDark={isDark}
+            online={online} />
         )}
       </main>
 
@@ -537,11 +538,11 @@ export default function App() {
       {/* ===== FORM COMPLETO MODAL ===== */}
       {showFormCompleto && (
         <FormularioTx tx={editTx} catGasto={catGasto} catIngreso={catIngreso} config={config}
-          transacciones={transacciones} onGuardar={guardarTx}
+          transacciones={transacciones} onGuardar={guardarTx} onEliminar={eliminarTx}
           onCerrar={() => { setShowFormCompleto(false); setEditTx(null); }} D={D} />
       )}
 
-      {/* ===== TOAST (above bottom nav, safe from iPhone notch) ===== */}
+      {/* ===== TOAST ===== */}
       {toast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
           <div className={`px-5 py-2.5 rounded-full shadow-lg text-sm font-medium ${toast.tipo === 'success' ? 'bg-stone-900 text-white' : 'bg-red-500 text-white'}`}>
@@ -1038,7 +1039,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
 }
 
 // ============ FORMULARIO COMPLETO (MODAL) ============
-function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuardar, onCerrar, D }) {
+function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuardar, onEliminar, onCerrar, D }) {
   const [tipo, setTipo] = useState(tx?.tipo || 'gasto');
   const [tipoRegistro, setTipoRegistro] = useState(tx?.tipoRegistro || 'real');
   const [categoria, setCategoria] = useState(tx?.categoria || '');
@@ -1137,6 +1138,20 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
           <button onClick={submit} className="w-full py-3 bg-stone-900 text-white font-semibold rounded-xl transition active:scale-[0.98]">
             {editando ? 'Actualizar' : 'Guardar'}
           </button>
+          {editando && (
+            <button onClick={() => {
+              if (confirm('¿Eliminar este registro?')) { onEliminar(tx.id); onCerrar(); }
+            }} className="w-full mt-2 py-2.5 rounded-xl text-sm font-medium text-red-500 border border-red-200 bg-red-50 transition active:scale-[0.98]">
+              <Trash2 className="w-4 h-4 inline mr-1.5" />Eliminar registro
+            </button>
+          )}
+          {editando && tx.grupoId && (
+            <button onClick={() => {
+              if (confirm('¿Eliminar este y todos los futuros del grupo?')) { onEliminar(tx.id, false); onCerrar(); }
+            }} className={`w-full mt-1.5 py-2 rounded-xl text-xs font-medium ${D.textMuted} border ${D.border} transition`}>
+              Eliminar este y futuros del grupo
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1145,7 +1160,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
 
 // ============ CONFIG ============
 function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onEliminarCat,
-  onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark, paises, sugerGasto, sugerIngreso }) {
+  onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark, paises, sugerGasto, sugerIngreso, online }) {
   const [showCats, setShowCats] = useState(null);
   const [nuevaCat, setNuevaCat] = useState({ nombre: '', emoji: '📦', color: '#8D99AE' });
   const [editandoCat, setEditandoCat] = useState(null);
@@ -1203,7 +1218,6 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
                 const newCfg = { ...config, pais: p.code, moneda: p.moneda };
                 setConfig(newCfg); APP_TZ = p.tz;
                 saveL(KEYS.CONFIG, newCfg);
-                // Guardar país en App_Settings
                 if (scriptUrl) { try { await apiSaveSetting(scriptUrl, 'pais', p.code); } catch {} }
               }}
               className={`p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${config.pais === p.code ? 'border-stone-900 ' + D.bgMuted : D.border + ' ' + D.bgCard}`}>
@@ -1268,16 +1282,10 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
       {/* Datos */}
       <Sec D={D} t="Datos">
         <p className={`text-xs mb-2 ${D.textMuted}`}>{totalTx} registros</p>
-        <div className="grid grid-cols-2 gap-2">
-          <button onClick={onExport} className={`py-2.5 rounded-xl text-sm font-medium border ${D.bgCard} ${D.border} ${D.text}`}><Download className="w-4 h-4 inline mr-1" />CSV</button>
-          <button onClick={async () => { if (!scriptUrl) return; if (!confirm('Cargar datos iniciales?')) return; setMigrating(true); try { await apiReplaceAll(scriptUrl, SEED_DATA); location.reload(); } catch(e) { alert(e.message); } setMigrating(false); }}
-            disabled={migrating || !scriptUrl} className="py-2.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-sm font-medium disabled:opacity-50">
-            {migrating ? '...' : 'Semilla'}
-          </button>
-        </div>
+        <button onClick={onExport} className={`w-full py-2.5 rounded-xl text-sm font-medium border ${D.bgCard} ${D.border} ${D.text}`}><Download className="w-4 h-4 inline mr-1" />Exportar CSV</button>
       </Sec>
 
-      {/* Modal categorías — drag to reorder + edit inline */}
+      {/* Modal categorías */}
       {showCats && (
         <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
           <div className={`w-full max-w-md rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up shadow-2xl ${D.bg}`}>
@@ -1286,23 +1294,25 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
               <button onClick={() => setShowCats(null)} className={`p-1.5 rounded-full ${D.bgCard}`}><X className={`w-5 h-5 ${D.text}`} /></button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1.5">
-              {cats.map((c, idx) => (
-                <div key={c.id}
-                  draggable
-                  onDragStart={(e) => { e.dataTransfer.setData('text/plain', idx.toString()); e.currentTarget.style.opacity = '0.5'; }}
-                  onDragEnd={(e) => { e.currentTarget.style.opacity = '1'; }}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
-                    if (fromIdx === idx) return;
-                    const newCats = [...cats];
-                    const [moved] = newCats.splice(fromIdx, 1);
-                    newCats.splice(idx, 0, moved);
-                    newCats.forEach((cat, j) => onGuardarCat({ ...cat, orden: j + 1 }, showCats));
-                  }}
-                  className={`rounded-xl border p-3 flex items-center gap-2 cursor-grab active:cursor-grabbing ${D.bgCard} ${D.border}`}>
-                  <GripVertical className={`w-4 h-4 flex-shrink-0 ${D.textMuted}`} />
+              {cats.map(c => (
+                <div key={c.id} className={`rounded-xl border p-3 flex items-center gap-2 ${D.bgCard} ${D.border}`}>
+                  {/* Flechas de orden */}
+                  <div className="flex flex-col gap-0.5">
+                    <button onClick={() => {
+                      const idx = cats.indexOf(c);
+                      if (idx <= 0) return;
+                      const newCats = [...cats];
+                      [newCats[idx-1], newCats[idx]] = [newCats[idx], newCats[idx-1]];
+                      newCats.forEach((cat, j) => onGuardarCat({ ...cat, orden: j+1 }, showCats));
+                    }} className={`text-xs p-0.5 rounded ${D.textMuted} hover:${D.bgMuted}`}>▲</button>
+                    <button onClick={() => {
+                      const idx = cats.indexOf(c);
+                      if (idx >= cats.length - 1) return;
+                      const newCats = [...cats];
+                      [newCats[idx], newCats[idx+1]] = [newCats[idx+1], newCats[idx]];
+                      newCats.forEach((cat, j) => onGuardarCat({ ...cat, orden: j+1 }, showCats));
+                    }} className={`text-xs p-0.5 rounded ${D.textMuted} hover:${D.bgMuted}`}>▼</button>
+                  </div>
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
                   <span className={`flex-1 text-sm font-medium ${D.text}`}>{c.nombre}</span>
                   <button onClick={() => { setEditandoCat(c); setNuevaCat({...c}); }} className={`text-xs px-2 py-1 rounded border ${D.bgMuted} ${D.border} ${D.textSub}`}>✏️</button>
