@@ -572,6 +572,15 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
   const [tipoRegistro, setTipoRegistro] = useState('real');
   const [categoria, setCategoria] = useState('');
   const [detalle, setDetalle] = useState('');
+  const touchRef = useRef(null);
+
+  const handleTouchStart = (e) => { touchRef.current = e.touches[0].clientX; };
+  const handleTouchEnd = (e) => {
+    if (touchRef.current === null) return;
+    const diff = e.changedTouches[0].clientX - touchRef.current;
+    if (diff > 80) onFormCompleto();
+    touchRef.current = null;
+  };
 
   const cats = tipo === 'gasto' ? catGasto : catIngreso;
   const topCats = useMemo(() => {
@@ -594,7 +603,7 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
   const cat = cats.find(c => c.id === categoria);
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -604,9 +613,7 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
             {formatFecha(nowLocal())} · {horaLocal()}
           </p>
         </div>
-        <button onClick={onFormCompleto} className={`text-xs px-3 py-1.5 rounded-full border ${D.bgCard} ${D.border} ${D.textSub}`}>
-          Completo ↗
-        </button>
+        <p className={`text-[10px] ${D.textMuted} italic`}>Desliza → completo</p>
       </div>
 
       {/* Toggle Gasto/Ingreso */}
@@ -906,16 +913,18 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
 
 // ============ ANÁLISIS ============
 function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
-  const [filtro, setFiltro] = useState('6m');
+  const [filtro, setFiltro] = useState('mes');
   const [selectedCat, setSelectedCat] = useState(null);
   const [expandedCat, setExpandedCat] = useState(null);
+  const [stickyChart, setStickyChart] = useState(true);
+  const [showFiltros, setShowFiltros] = useState(false);
 
   const accentColor = ACENTOS[config.acento || 'amber'].dot;
 
-  // Agrupar por mes financiero — siempre N meses hacia atrás
+  // Meses según filtro
   const meses = useMemo(() => {
     const hoy = nowLocal();
-    let numMeses = filtro === '3m' ? 3 : filtro === '6m' ? 6 : 12;
+    let numMeses = filtro === 'mes' ? 1 : filtro === '3m' ? 3 : filtro === '6m' ? 6 : 12;
     const rangos = [];
     for (let i = numMeses - 1; i >= 0; i--) {
       const ref = new Date(hoy); ref.setMonth(ref.getMonth() - i);
@@ -934,7 +943,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
     return rangos;
   }, [transacciones, config, filtro]);
 
-  // Chart data — filtrado por categoría seleccionada
+  // Chart data filtrado por categoría
   const chartData = useMemo(() => {
     if (!selectedCat) return meses;
     return meses.map(m => {
@@ -947,11 +956,9 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
   }, [meses, selectedCat]);
 
   const maxGasto = Math.max(...chartData.map(m => Math.max(m.gp, m.gr)), 1);
-
-  // Todas las transacciones del período para categorías
   const allTxsPeriod = useMemo(() => meses.flatMap(m => m.txs), [meses]);
 
-  // Categorías del período completo
+  // Categorías del período
   const analisisCat = useMemo(() => {
     const map = {};
     allTxsPeriod.filter(t => t.tipo === 'gasto').forEach(t => {
@@ -977,25 +984,26 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
     return [...active, ...inactive];
   }, [allTxsPeriod, catGasto]);
 
-  // Donut — distribución gasto real
+  // Donut data
+  const totalReal = analisisCat.reduce((s, c) => s + c.real, 0);
   const donutData = useMemo(() => {
-    const totalReal = analisisCat.reduce((s, c) => s + c.real, 0);
     if (totalReal === 0) return [];
     return analisisCat.filter(c => c.real > 0).map(c => ({ ...c, pct: (c.real / totalReal) * 100 })).sort((a, b) => b.pct - a.pct);
-  }, [analisisCat]);
+  }, [analisisCat, totalReal]);
 
   const barColor = (ejec) => ejec === null ? 'bg-stone-400' : ejec <= 80 ? 'bg-emerald-500' : ejec <= 100 ? 'bg-amber-500' : 'bg-red-500';
   const badgeColor = (ejec) => ejec === null ? 'bg-stone-100 text-stone-500' : ejec <= 80 ? 'bg-emerald-50 text-emerald-700' : ejec <= 100 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
 
-  const DonutChart = ({ data, size = 150 }) => {
-    const r = size / 2 - 14;
+  // SVG Donut
+  const DonutChart = ({ data, size = 160 }) => {
+    const cx = size / 2, cy = size / 2, r = size / 2 - 16;
     const circ = 2 * Math.PI * r;
     let offset = 0;
     return (
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="mx-auto">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="mx-auto block">
         {data.map(d => {
           const len = (d.pct / 100) * circ;
-          const el = <circle key={d.id} cx={size/2} cy={size/2} r={r} fill="none" stroke={d.color || '#8D99AE'} strokeWidth={18} strokeDasharray={`${len} ${circ - len}`} strokeDashoffset={-offset} transform={`rotate(-90 ${size/2} ${size/2})`} />;
+          const el = <circle key={d.id} cx={cx} cy={cy} r={r} fill="none" stroke={d.color || '#8D99AE'} strokeWidth={22} strokeDasharray={`${len} ${circ - len}`} strokeDashoffset={-offset} transform={`rotate(-90 ${cx} ${cy})`} className="cursor-pointer" onClick={() => setSelectedCat(selectedCat === d.id ? null : d.id)} />;
           offset += len;
           return el;
         })}
@@ -1004,39 +1012,70 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
   };
 
   const selectedCatData = selectedCat ? analisisCat.find(c => c.id === selectedCat) : null;
-  const periodoLabel = filtro === '3m' ? '3 meses' : filtro === '6m' ? '6 meses' : 'Año';
+  const periodoLabel = filtro === 'mes' ? (meses[0]?.fullLabel || 'Mes actual') : filtro === '3m' ? '3 meses' : filtro === '6m' ? '6 meses' : 'Año';
+  const showMultiMonth = filtro !== 'mes' || selectedCat;
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      <h1 className={`font-serif text-2xl font-semibold ${D.text}`}>Análisis</h1>
+    <div className="animate-fade-in">
+      <h1 className={`font-serif text-2xl font-semibold mb-3 ${D.text}`}>Análisis</h1>
 
-      <div className="flex gap-1.5">
-        {[{ id: '3m', l: '3 meses' }, { id: '6m', l: '6 meses' }, { id: 'year', l: 'Año' }].map(f => (
-          <button key={f.id} onClick={() => { setFiltro(f.id); setSelectedCat(null); }}
-            className={`flex-1 py-2 rounded-xl text-xs font-medium border transition ${filtro === f.id ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
-            {f.l}
+      {/* Filtro: Mes actual por defecto + desplegable para otros */}
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={() => { setFiltro('mes'); setSelectedCat(null); setShowFiltros(false); }}
+          className={`py-2 px-4 rounded-xl text-xs font-medium border transition ${filtro === 'mes' ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+          {meses.length === 1 ? meses[0]?.fullLabel || 'Mes actual' : 'Mes actual'}
+        </button>
+        <div className="relative">
+          <button onClick={() => setShowFiltros(!showFiltros)}
+            className={`py-2 px-3 rounded-xl text-xs font-medium border transition flex items-center gap-1 ${filtro !== 'mes' ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+            {filtro === '3m' ? '3 meses' : filtro === '6m' ? '6 meses' : filtro === 'year' ? 'Año' : 'Más'} <ChevronRight className={`w-3 h-3 transition ${showFiltros ? 'rotate-90' : ''}`} />
           </button>
-        ))}
+          {showFiltros && (
+            <div className={`absolute top-full left-0 mt-1 rounded-xl shadow-lg border z-20 overflow-hidden ${D.bgCard} ${D.border}`}>
+              {[{id:'3m',l:'3 meses'},{id:'6m',l:'6 meses'},{id:'year',l:'Año'}].map(f => (
+                <button key={f.id} onClick={() => { setFiltro(f.id); setSelectedCat(null); setShowFiltros(false); }}
+                  className={`block w-full text-left px-4 py-2.5 text-xs font-medium transition ${filtro === f.id ? D.accentText + ' ' + D.bgMuted : D.text} hover:${D.bgMuted}`}>
+                  {f.l}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Gráfico barras — todos los meses, filtrable por categoría */}
-      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
-        <div className="flex items-center justify-between mb-3">
+      {/* Gráfico sticky — barras superpuestas (presupuesto atrás, real delante) */}
+      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border} ${stickyChart ? 'sticky z-10 shadow-md' : ''}`}
+        style={stickyChart ? { top: 'env(safe-area-inset-top, 0px)' } : undefined}>
+        <div className="flex items-center justify-between mb-2">
           <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>
             {selectedCatData ? `${selectedCatData.emoji} ${selectedCatData.nombre}` : 'Gastos'}: Presup. vs Real
           </p>
-          {selectedCat && <button onClick={() => setSelectedCat(null)} className={`text-[10px] px-2 py-1 rounded-full ${D.bgMuted} ${D.textMuted}`}>Ver todo ✕</button>}
+          <div className="flex items-center gap-1">
+            {selectedCat && <button onClick={() => setSelectedCat(null)} className={`text-[10px] px-2 py-1 rounded-full ${D.bgMuted} ${D.textMuted}`}>✕</button>}
+            <button onClick={() => setStickyChart(s => !s)} className={`p-1 rounded-full transition ${stickyChart ? 'bg-amber-100 text-amber-700' : D.bgMuted + ' ' + D.textMuted}`}>
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill={stickyChart ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
+            </button>
+          </div>
         </div>
-        <div className="flex items-end gap-1.5 h-44">
+        <div className="flex items-end gap-1" style={{ height: showMultiMonth ? 150 : 120 }}>
           {chartData.map(m => {
-            const hProy = (m.gp / maxGasto) * 136;
-            const hReal = (m.gr / maxGasto) * 136;
+            const pctProy = m.gp / maxGasto;
+            const pctReal = m.gr / maxGasto;
+            const barH = showMultiMonth ? 120 : 90;
+            const hProy = pctProy * barH;
+            const hReal = pctReal * barH;
+            const ejec = m.gp > 0 ? ((m.gr / m.gp) * 100).toFixed(0) + '%' : '';
             return (
               <div key={m.key} className="flex-1 flex flex-col items-center gap-0.5">
                 {m.gr > 0 && <span className={`text-[7px] font-bold ${D.textMuted}`}>{m.gr >= 1000 ? `${(m.gr/1000).toFixed(1)}k` : m.gr.toFixed(0)}</span>}
-                <div className="w-full flex items-end justify-center gap-px" style={{ height: 132 }}>
-                  <div className={`w-[40%] rounded-t ${D.bgMuted}`} style={{ height: Math.max(hProy, m.gp > 0 ? 4 : 0) }} />
-                  <div className="w-[40%] rounded-t" style={{ height: Math.max(hReal, m.gr > 0 ? 4 : 0), backgroundColor: selectedCatData?.color || accentColor }} />
+                {ejec && m.gr > 0 && <span className={`text-[7px] italic ${m.gr/m.gp <= 0.8 ? 'text-emerald-600' : m.gr/m.gp <= 1 ? 'text-amber-600' : 'text-red-600'}`}>{ejec}</span>}
+                <div className="w-full flex justify-center" style={{ height: barH }}>
+                  <div className="relative flex items-end" style={{ width: '70%' }}>
+                    {/* Presupuesto detrás */}
+                    <div className={`absolute bottom-0 w-full rounded-t ${D.bgMuted}`} style={{ height: Math.max(hProy, m.gp > 0 ? 4 : 0) }} />
+                    {/* Real delante */}
+                    <div className="absolute bottom-0 w-full rounded-t" style={{ height: Math.max(hReal, m.gr > 0 ? 4 : 0), backgroundColor: selectedCatData?.color || accentColor, opacity: 0.85 }} />
+                  </div>
                 </div>
                 <span className={`text-[9px] ${D.textMuted}`}>{m.label}</span>
               </div>
@@ -1049,25 +1088,28 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
         </div>
       </div>
 
-      {/* Donut — ¿dónde se va tu dinero? */}
+      {/* Donut — distribución con leyenda visual como imagen de referencia */}
       {donutData.length > 0 && !selectedCat && (
-        <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
-          <p className={`text-[10px] uppercase tracking-widest mb-3 ${D.textMuted}`}>¿Dónde se va tu dinero? — {periodoLabel}</p>
-          <DonutChart data={donutData} />
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-3">
-            {donutData.slice(0, 10).map(d => (
-              <button key={d.id} onClick={() => setSelectedCat(d.id)} className="flex items-center gap-1.5 py-0.5 text-left">
-                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
-                <span className={`text-[10px] ${D.textSub} truncate flex-1`}>{d.nombre}</span>
-                <span className={`text-[10px] font-bold ${D.text}`}>{d.pct.toFixed(0)}%</span>
-              </button>
-            ))}
+        <div className={`rounded-2xl border p-4 mt-4 ${D.bgCard} ${D.border}`}>
+          <p className={`text-[10px] uppercase tracking-widest mb-3 ${D.textMuted}`}>Distribución del gasto — {periodoLabel}</p>
+          <div className="flex items-center gap-4">
+            <DonutChart data={donutData} size={140} />
+            <div className="flex-1 space-y-1">
+              {donutData.slice(0, 8).map(d => (
+                <button key={d.id} onClick={() => setSelectedCat(selectedCat === d.id ? null : d.id)}
+                  className={`w-full flex items-center gap-2 py-1 px-1.5 rounded-lg text-left transition active:scale-[0.97] ${selectedCat === d.id ? D.bgMuted : ''}`}>
+                  <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: d.color }} />
+                  <span className={`text-[10px] ${D.textSub} truncate flex-1`}>{d.nombre}</span>
+                  <span className={`text-[10px] font-bold ${D.text}`}>{d.pct.toFixed(0)}%</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Detalle por categoría — período completo */}
-      <div>
+      {/* Detalle por categoría */}
+      <div className="mt-4">
         <h2 className={`font-serif text-lg font-semibold mb-2 px-1 ${D.text}`}>Detalle — {periodoLabel}</h2>
         <div className="space-y-1.5">
           {analisisCat.map(c => {
@@ -1121,6 +1163,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
     </div>
   );
 }
+
 
 // ============ FORMULARIO COMPLETO (MODAL) ============
 function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuardar, onEliminar, onCerrar, D }) {
