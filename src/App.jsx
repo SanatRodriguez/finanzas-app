@@ -906,10 +906,11 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
 
 // ============ ANÁLISIS ============
 function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
-  const [filtro, setFiltro] = useState('6m'); // 3m | 6m | year
-  const [vistaDetalle, setVistaDetalle] = useState(false);
+  const [filtro, setFiltro] = useState('6m');
 
-  // Obtener rango según filtro
+  const accentColor = ACENTOS[config.acento || 'amber'].dot;
+
+  // Agrupar por mes financiero según filtro
   const meses = useMemo(() => {
     const hoy = nowLocal();
     let desde;
@@ -917,7 +918,6 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
     else if (filtro === '6m') { desde = new Date(hoy); desde.setMonth(desde.getMonth() - 6); }
     else { desde = new Date(hoy.getFullYear(), 0, 1); }
 
-    // Agrupar por mes financiero
     const rangos = [];
     let cursor = new Date(desde);
     while (cursor <= hoy) {
@@ -931,34 +931,62 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
         });
         const gp = txs.filter(t => t.tipo === 'gasto' && t.tipoRegistro === 'proyectado').reduce((s,t) => s + Number(t.monto), 0);
         const gr = txs.filter(t => t.tipo === 'gasto' && t.tipoRegistro === 'real').reduce((s,t) => s + Number(t.monto), 0);
-        const ip = txs.filter(t => t.tipo === 'ingreso' && t.tipoRegistro === 'proyectado').reduce((s,t) => s + Number(t.monto), 0);
-        const ir = txs.filter(t => t.tipo === 'ingreso' && t.tipoRegistro === 'real').reduce((s,t) => s + Number(t.monto), 0);
-        rangos.push({ key, label: NOMBRES_MES_LARGO[rango.inicio.getMonth()].slice(0,3), fullLabel: NOMBRES_MES_LARGO[rango.inicio.getMonth()], year: rango.inicio.getFullYear(), gp, gr, ip, ir, txs });
+        rangos.push({ key, label: NOMBRES_MES_LARGO[rango.inicio.getMonth()].slice(0,3), fullLabel: NOMBRES_MES_LARGO[rango.inicio.getMonth()], year: rango.inicio.getFullYear(), gp, gr, txs });
       }
       cursor.setMonth(cursor.getMonth() + 1);
     }
     return rangos;
   }, [transacciones, config, filtro]);
 
-  const maxGasto = Math.max(...meses.map(m => Math.max(m.gp, m.gr)), 1);
+  // Solo meses con datos
+  const mesesConDatos = meses.filter(m => m.gp > 0 || m.gr > 0);
+  const maxGasto = Math.max(...mesesConDatos.map(m => Math.max(m.gp, m.gr)), 1);
 
-  // Análisis por categoría del mes más reciente
+  // Mes más reciente para análisis por categoría
   const mesActual = meses[meses.length - 1];
+
+  // Agrupar por categoría padre, sumando subcategorías
   const analisisCat = useMemo(() => {
     if (!mesActual) return [];
     const map = {};
     mesActual.txs.filter(t => t.tipo === 'gasto').forEach(t => {
-      if (!map[t.categoria]) map[t.categoria] = { proy: 0, real: 0 };
-      if (t.tipoRegistro === 'proyectado') map[t.categoria].proy += Number(t.monto);
-      else map[t.categoria].real += Number(t.monto);
+      const catId = t.categoria;
+      if (!map[catId]) map[catId] = { proy: 0, real: 0, subs: {} };
+      if (t.tipoRegistro === 'proyectado') map[catId].proy += Number(t.monto);
+      else map[catId].real += Number(t.monto);
+      // Agrupar subcategorías
+      const sub = t.subcategoria || '';
+      if (sub) {
+        if (!map[catId].subs[sub]) map[catId].subs[sub] = { proy: 0, real: 0 };
+        if (t.tipoRegistro === 'proyectado') map[catId].subs[sub].proy += Number(t.monto);
+        else map[catId].subs[sub].real += Number(t.monto);
+      }
     });
-    return Object.entries(map).map(([catId, v]) => {
-      const cat = catGasto.find(c => c.id === catId) || { emoji: '📦', nombre: catId, color: '#888' };
-      return { ...cat, ...v, ejec: v.proy > 0 ? (v.real / v.proy) * 100 : (v.real > 0 ? 999 : 0) };
-    }).sort((a, b) => Math.max(b.proy, b.real) - Math.max(a.proy, a.real));
+    return Object.entries(map)
+      .filter(([, v]) => v.proy > 0 || v.real > 0)
+      .map(([catId, v]) => {
+        const cat = catGasto.find(c => c.id === catId) || { emoji: '📦', nombre: catId, color: '#8D99AE' };
+        const ejec = v.proy > 0 ? (v.real / v.proy) * 100 : null;
+        const subs = Object.entries(v.subs).map(([name, sv]) => ({ name, ...sv })).filter(s => s.proy > 0 || s.real > 0);
+        return { id: catId, emoji: cat.emoji, nombre: cat.nombre, color: cat.color, proy: v.proy, real: v.real, ejec, subs };
+      })
+      .sort((a, b) => b.real - a.real);
   }, [mesActual, catGasto]);
 
-  const [stickyChart, setStickyChart] = useState(false);
+  const [expandedCat, setExpandedCat] = useState(null);
+
+  const barColor = (ejec) => {
+    if (ejec === null) return 'bg-stone-400';
+    if (ejec <= 80) return 'bg-emerald-500';
+    if (ejec <= 100) return 'bg-amber-500';
+    return 'bg-red-500';
+  };
+  const badgeColor = (ejec) => {
+    if (ejec === null) return 'bg-stone-100 text-stone-500';
+    if (ejec <= 80) return 'bg-emerald-50 text-emerald-700';
+    if (ejec <= 100) return 'bg-amber-50 text-amber-700';
+    return 'bg-red-50 text-red-700';
+  };
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -974,36 +1002,34 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
         ))}
       </div>
 
-      {/* Gráfico de barras mes a mes */}
-      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border} ${stickyChart ? 'sticky top-0 z-10 shadow-lg' : ''}`}>
-        <div className="flex items-center justify-between mb-3">
-          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Gastos: Presupuesto vs Real</p>
-          <button onClick={() => setStickyChart(s => !s)} className={`p-1.5 rounded-full transition ${stickyChart ? 'bg-amber-100 text-amber-700' : D.bgMuted + ' ' + D.textMuted}`} title={stickyChart ? 'Desfijar' : 'Fijar gráfico'}>
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill={stickyChart ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
-          </button>
-        </div>
-        <div className="flex items-end gap-1 h-40">
-          {meses.map(m => {
-            const hProy = (m.gp / maxGasto) * 100;
-            const hReal = (m.gr / maxGasto) * 100;
-            return (
-              <div key={m.key} className="flex-1 flex flex-col items-center gap-0.5">
-                <div className="w-full flex items-end justify-center gap-px h-32">
-                  {/* Barra proyectado (fondo) con real encima */}
-                  <div className="w-full relative">
-                    <div className={`w-full rounded-t-sm ${D.bgMuted}`} style={{ height: `${hProy}%`, minHeight: m.gp > 0 ? 4 : 0 }} />
-                    <div className="absolute bottom-0 left-0 right-0 rounded-t-sm bg-amber-500" style={{ height: `${hReal}%`, minHeight: m.gr > 0 ? 4 : 0 }} />
+      {/* Gráfico barras agrupadas — solo meses con datos */}
+      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
+        <p className={`text-[10px] uppercase tracking-widest mb-3 ${D.textMuted}`}>Gastos: Presupuesto vs Real</p>
+        {mesesConDatos.length === 0 ? (
+          <p className={`text-sm text-center py-8 ${D.textMuted}`}>Sin datos en este período</p>
+        ) : (
+          <>
+            <div className="flex items-end gap-2 h-40">
+              {mesesConDatos.map(m => {
+                const hProy = (m.gp / maxGasto) * 128;
+                const hReal = (m.gr / maxGasto) * 128;
+                return (
+                  <div key={m.key} className="flex-1 flex flex-col items-center gap-1">
+                    <div className="w-full flex items-end justify-center gap-0.5" style={{ height: 128 }}>
+                      <div className={`w-2/5 rounded-t-sm ${D.bgMuted}`} style={{ height: Math.max(hProy, m.gp > 0 ? 4 : 0) }} />
+                      <div className="w-2/5 rounded-t-sm" style={{ height: Math.max(hReal, m.gr > 0 ? 4 : 0), backgroundColor: accentColor }} />
+                    </div>
+                    <span className={`text-[9px] ${D.textMuted}`}>{m.label}</span>
                   </div>
-                </div>
-                <span className={`text-[9px] ${D.textMuted}`}>{m.label}</span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex items-center gap-4 mt-3">
-          <div className="flex items-center gap-1.5"><div className={`w-3 h-3 rounded-sm ${D.bgMuted}`} /><span className={`text-[10px] ${D.textMuted}`}>Presupuesto</span></div>
-          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-amber-500" /><span className={`text-[10px] ${D.textMuted}`}>Real</span></div>
-        </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-4 mt-3">
+              <div className="flex items-center gap-1.5"><div className={`w-3 h-3 rounded-sm ${D.bgMuted}`} /><span className={`text-[10px] ${D.textMuted}`}>Presupuesto</span></div>
+              <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: accentColor }} /><span className={`text-[10px] ${D.textMuted}`}>Real</span></div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Categorías del mes actual */}
@@ -1014,21 +1040,53 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
           </h2>
           <div className="space-y-1.5">
             {analisisCat.map(c => (
-              <div key={c.id} className={`rounded-xl border p-3 ${D.bgCard} ${D.border}`}>
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
-                  <div className="flex-1">
-                    <p className={`font-medium text-sm ${D.text}`}>{c.nombre}</p>
-                    <p className={`text-[11px] ${D.textMuted}`}>{formatMonto(c.real, config.moneda)} / {formatMonto(c.proy, config.moneda)}</p>
+              <div key={c.id}>
+                <button onClick={() => c.subs.length > 0 && setExpandedCat(expandedCat === c.id ? null : c.id)}
+                  className={`w-full rounded-xl border p-3 text-left transition ${D.bgCard} ${D.border} ${c.subs.length > 0 ? 'active:scale-[0.99]' : ''}`}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ backgroundColor: (c.color || '#8D99AE') + '22' }}>{c.emoji}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`font-medium text-sm ${D.text}`}>{c.nombre}</p>
+                      <p className={`text-[11px] ${D.textMuted}`}>
+                        {c.ejec !== null
+                          ? `${formatMonto(c.real, config.moneda)} / ${formatMonto(c.proy, config.moneda)}`
+                          : `${formatMonto(c.real, config.moneda)}`}
+                      </p>
+                    </div>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badgeColor(c.ejec)}`}>
+                      {c.ejec !== null ? `${c.ejec.toFixed(0)}%` : 'S/P'}
+                    </span>
+                    {c.subs.length > 0 && <ChevronRight className={`w-4 h-4 transition ${D.textMuted} ${expandedCat === c.id ? 'rotate-90' : ''}`} />}
                   </div>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${c.ejec <= 80 ? 'bg-emerald-50 text-emerald-700' : c.ejec <= 100 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
-                    {c.ejec >= 999 ? '—' : `${c.ejec.toFixed(0)}%`}
-                  </span>
-                </div>
-                <div className={`h-1.5 rounded-full overflow-hidden ${D.bgMuted}`}>
-                  <div className={`h-full transition-all ${c.ejec <= 80 ? 'bg-emerald-500' : c.ejec <= 100 ? 'bg-amber-500' : 'bg-red-500'}`}
-                    style={{ width: `${Math.min(c.ejec, 100)}%` }} />
-                </div>
+                  <div className={`h-1.5 rounded-full overflow-hidden ${D.bgMuted}`}>
+                    <div className={`h-full transition-all ${barColor(c.ejec)}`}
+                      style={{ width: c.ejec !== null ? `${Math.min(c.ejec, 100)}%` : (c.real > 0 ? '100%' : '0%') }} />
+                  </div>
+                </button>
+                {/* Subcategorías expandibles */}
+                {expandedCat === c.id && c.subs.length > 0 && (
+                  <div className={`ml-6 mt-1 space-y-1 border-l-2 pl-3 ${D.border}`}>
+                    {c.subs.sort((a,b) => b.real - a.real).map(s => {
+                      const sEjec = s.proy > 0 ? (s.real / s.proy) * 100 : null;
+                      return (
+                        <div key={s.name} className={`rounded-lg p-2 ${D.bgMuted}`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`text-xs font-medium ${D.textSub}`}>{s.name}</span>
+                            <span className={`text-[10px] font-bold ${badgeColor(sEjec)} px-1.5 py-0.5 rounded-full`}>
+                              {sEjec !== null ? `${sEjec.toFixed(0)}%` : 'S/P'}
+                            </span>
+                          </div>
+                          <p className={`text-[10px] ${D.textMuted}`}>
+                            {sEjec !== null ? `${formatMonto(s.real, config.moneda)} / ${formatMonto(s.proy, config.moneda)}` : formatMonto(s.real, config.moneda)}
+                          </p>
+                          <div className={`h-1 rounded-full overflow-hidden mt-1 ${D.bgCard}`}>
+                            <div className={`h-full ${barColor(sEjec)}`} style={{ width: sEjec !== null ? `${Math.min(sEjec, 100)}%` : (s.real > 0 ? '100%' : '0%') }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ))}
           </div>
