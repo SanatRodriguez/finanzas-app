@@ -907,54 +907,58 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
 // ============ ANÁLISIS ============
 function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
   const [filtro, setFiltro] = useState('6m');
+  const [selectedCat, setSelectedCat] = useState(null);
+  const [expandedCat, setExpandedCat] = useState(null);
 
   const accentColor = ACENTOS[config.acento || 'amber'].dot;
 
-  // Agrupar por mes financiero según filtro
+  // Agrupar por mes financiero — siempre N meses hacia atrás
   const meses = useMemo(() => {
     const hoy = nowLocal();
-    let desde;
-    if (filtro === '3m') { desde = new Date(hoy); desde.setMonth(desde.getMonth() - 3); }
-    else if (filtro === '6m') { desde = new Date(hoy); desde.setMonth(desde.getMonth() - 6); }
-    else { desde = new Date(hoy.getFullYear(), 0, 1); }
-
+    let numMeses = filtro === '3m' ? 3 : filtro === '6m' ? 6 : 12;
     const rangos = [];
-    let cursor = new Date(desde);
-    while (cursor <= hoy) {
-      const rango = getRangoMesFinanciero(cursor, config.diaInicioMes, config.ajustarFinDeSemana);
+    for (let i = numMeses - 1; i >= 0; i--) {
+      const ref = new Date(hoy); ref.setMonth(ref.getMonth() - i);
+      const rango = getRangoMesFinanciero(ref, config.diaInicioMes, config.ajustarFinDeSemana);
       const key = `${rango.inicio.getFullYear()}-${String(rango.inicio.getMonth()+1).padStart(2,'0')}`;
-      if (!rangos.find(r => r.key === key)) {
-        const txs = transacciones.filter(t => {
-          if (!t.fecha) return false;
-          const f = parseFechaLima(extraerFecha(t.fecha));
-          return f >= rango.inicio && f <= rango.fin;
-        });
-        const gp = txs.filter(t => t.tipo === 'gasto' && t.tipoRegistro === 'proyectado').reduce((s,t) => s + Number(t.monto), 0);
-        const gr = txs.filter(t => t.tipo === 'gasto' && t.tipoRegistro === 'real').reduce((s,t) => s + Number(t.monto), 0);
-        rangos.push({ key, label: NOMBRES_MES_LARGO[rango.inicio.getMonth()].slice(0,3), fullLabel: NOMBRES_MES_LARGO[rango.inicio.getMonth()], year: rango.inicio.getFullYear(), gp, gr, txs });
-      }
-      cursor.setMonth(cursor.getMonth() + 1);
+      if (rangos.find(r => r.key === key)) continue;
+      const txs = transacciones.filter(t => {
+        if (!t.fecha) return false;
+        const f = parseFechaLima(extraerFecha(t.fecha));
+        return f >= rango.inicio && f <= rango.fin;
+      });
+      const gp = txs.filter(t => t.tipo === 'gasto' && t.tipoRegistro === 'proyectado').reduce((s,t) => s + Number(t.monto), 0);
+      const gr = txs.filter(t => t.tipo === 'gasto' && t.tipoRegistro === 'real').reduce((s,t) => s + Number(t.monto), 0);
+      rangos.push({ key, label: NOMBRES_MES_LARGO[rango.inicio.getMonth()].slice(0,3), fullLabel: NOMBRES_MES_LARGO[rango.inicio.getMonth()], gp, gr, txs });
     }
     return rangos;
   }, [transacciones, config, filtro]);
 
-  // Solo meses con datos
-  const mesesConDatos = meses.filter(m => m.gp > 0 || m.gr > 0);
-  const maxGasto = Math.max(...mesesConDatos.map(m => Math.max(m.gp, m.gr)), 1);
+  // Chart data — filtrado por categoría seleccionada
+  const chartData = useMemo(() => {
+    if (!selectedCat) return meses;
+    return meses.map(m => {
+      const catTxs = m.txs.filter(t => t.tipo === 'gasto' && t.categoria === selectedCat);
+      return { ...m,
+        gp: catTxs.filter(t => t.tipoRegistro === 'proyectado').reduce((s,t) => s + Number(t.monto), 0),
+        gr: catTxs.filter(t => t.tipoRegistro === 'real').reduce((s,t) => s + Number(t.monto), 0),
+      };
+    });
+  }, [meses, selectedCat]);
 
-  // Mes más reciente para análisis por categoría
-  const mesActual = meses[meses.length - 1];
+  const maxGasto = Math.max(...chartData.map(m => Math.max(m.gp, m.gr)), 1);
 
-  // Agrupar por categoría padre, sumando subcategorías
+  // Todas las transacciones del período para categorías
+  const allTxsPeriod = useMemo(() => meses.flatMap(m => m.txs), [meses]);
+
+  // Categorías del período completo
   const analisisCat = useMemo(() => {
-    if (!mesActual) return [];
     const map = {};
-    mesActual.txs.filter(t => t.tipo === 'gasto').forEach(t => {
+    allTxsPeriod.filter(t => t.tipo === 'gasto').forEach(t => {
       const catId = t.categoria;
       if (!map[catId]) map[catId] = { proy: 0, real: 0, subs: {} };
       if (t.tipoRegistro === 'proyectado') map[catId].proy += Number(t.monto);
       else map[catId].real += Number(t.monto);
-      // Agrupar subcategorías
       const sub = t.subcategoria || '';
       if (sub) {
         if (!map[catId].subs[sub]) map[catId].subs[sub] = { proy: 0, real: 0 };
@@ -962,108 +966,134 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
         else map[catId].subs[sub].real += Number(t.monto);
       }
     });
-    return Object.entries(map)
-      .filter(([, v]) => v.proy > 0 || v.real > 0)
-      .map(([catId, v]) => {
-        const cat = catGasto.find(c => c.id === catId) || { emoji: '📦', nombre: catId, color: '#8D99AE' };
-        const ejec = v.proy > 0 ? (v.real / v.proy) * 100 : null;
-        const subs = Object.entries(v.subs).map(([name, sv]) => ({ name, ...sv })).filter(s => s.proy > 0 || s.real > 0);
-        return { id: catId, emoji: cat.emoji, nombre: cat.nombre, color: cat.color, proy: v.proy, real: v.real, ejec, subs };
-      })
-      .sort((a, b) => b.real - a.real);
-  }, [mesActual, catGasto]);
+    const items = Object.entries(map).map(([catId, v]) => {
+      const cat = catGasto.find(c => c.id === catId) || { emoji: '📦', nombre: catId, color: '#8D99AE' };
+      const ejec = v.proy > 0 ? (v.real / v.proy) * 100 : null;
+      const subs = Object.entries(v.subs).map(([name, sv]) => ({ name, ...sv })).filter(s => s.proy > 0 || s.real > 0);
+      return { id: catId, emoji: cat.emoji, nombre: cat.nombre, color: cat.color, proy: v.proy, real: v.real, ejec, subs };
+    });
+    const active = items.filter(c => c.real > 0 || c.proy > 0).sort((a, b) => b.real - a.real);
+    const inactive = items.filter(c => c.real === 0 && c.proy === 0);
+    return [...active, ...inactive];
+  }, [allTxsPeriod, catGasto]);
 
-  const [expandedCat, setExpandedCat] = useState(null);
+  // Donut — distribución gasto real
+  const donutData = useMemo(() => {
+    const totalReal = analisisCat.reduce((s, c) => s + c.real, 0);
+    if (totalReal === 0) return [];
+    return analisisCat.filter(c => c.real > 0).map(c => ({ ...c, pct: (c.real / totalReal) * 100 })).sort((a, b) => b.pct - a.pct);
+  }, [analisisCat]);
 
-  const barColor = (ejec) => {
-    if (ejec === null) return 'bg-stone-400';
-    if (ejec <= 80) return 'bg-emerald-500';
-    if (ejec <= 100) return 'bg-amber-500';
-    return 'bg-red-500';
+  const barColor = (ejec) => ejec === null ? 'bg-stone-400' : ejec <= 80 ? 'bg-emerald-500' : ejec <= 100 ? 'bg-amber-500' : 'bg-red-500';
+  const badgeColor = (ejec) => ejec === null ? 'bg-stone-100 text-stone-500' : ejec <= 80 ? 'bg-emerald-50 text-emerald-700' : ejec <= 100 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
+
+  const DonutChart = ({ data, size = 150 }) => {
+    const r = size / 2 - 14;
+    const circ = 2 * Math.PI * r;
+    let offset = 0;
+    return (
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="mx-auto">
+        {data.map(d => {
+          const len = (d.pct / 100) * circ;
+          const el = <circle key={d.id} cx={size/2} cy={size/2} r={r} fill="none" stroke={d.color || '#8D99AE'} strokeWidth={18} strokeDasharray={`${len} ${circ - len}`} strokeDashoffset={-offset} transform={`rotate(-90 ${size/2} ${size/2})`} />;
+          offset += len;
+          return el;
+        })}
+      </svg>
+    );
   };
-  const badgeColor = (ejec) => {
-    if (ejec === null) return 'bg-stone-100 text-stone-500';
-    if (ejec <= 80) return 'bg-emerald-50 text-emerald-700';
-    if (ejec <= 100) return 'bg-amber-50 text-amber-700';
-    return 'bg-red-50 text-red-700';
-  };
+
+  const selectedCatData = selectedCat ? analisisCat.find(c => c.id === selectedCat) : null;
+  const periodoLabel = filtro === '3m' ? '3 meses' : filtro === '6m' ? '6 meses' : 'Año';
 
   return (
     <div className="space-y-4 animate-fade-in">
       <h1 className={`font-serif text-2xl font-semibold ${D.text}`}>Análisis</h1>
 
-      {/* Filtros de período */}
       <div className="flex gap-1.5">
         {[{ id: '3m', l: '3 meses' }, { id: '6m', l: '6 meses' }, { id: 'year', l: 'Año' }].map(f => (
-          <button key={f.id} onClick={() => setFiltro(f.id)}
+          <button key={f.id} onClick={() => { setFiltro(f.id); setSelectedCat(null); }}
             className={`flex-1 py-2 rounded-xl text-xs font-medium border transition ${filtro === f.id ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
             {f.l}
           </button>
         ))}
       </div>
 
-      {/* Gráfico barras agrupadas — solo meses con datos */}
+      {/* Gráfico barras — todos los meses, filtrable por categoría */}
       <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
-        <p className={`text-[10px] uppercase tracking-widest mb-3 ${D.textMuted}`}>Gastos: Presupuesto vs Real</p>
-        {mesesConDatos.length === 0 ? (
-          <p className={`text-sm text-center py-8 ${D.textMuted}`}>Sin datos en este período</p>
-        ) : (
-          <>
-            <div className="flex items-end gap-2 h-40">
-              {mesesConDatos.map(m => {
-                const hProy = (m.gp / maxGasto) * 128;
-                const hReal = (m.gr / maxGasto) * 128;
-                return (
-                  <div key={m.key} className="flex-1 flex flex-col items-center gap-1">
-                    <div className="w-full flex items-end justify-center gap-0.5" style={{ height: 128 }}>
-                      <div className={`w-2/5 rounded-t-sm ${D.bgMuted}`} style={{ height: Math.max(hProy, m.gp > 0 ? 4 : 0) }} />
-                      <div className="w-2/5 rounded-t-sm" style={{ height: Math.max(hReal, m.gr > 0 ? 4 : 0), backgroundColor: accentColor }} />
-                    </div>
-                    <span className={`text-[9px] ${D.textMuted}`}>{m.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex items-center gap-4 mt-3">
-              <div className="flex items-center gap-1.5"><div className={`w-3 h-3 rounded-sm ${D.bgMuted}`} /><span className={`text-[10px] ${D.textMuted}`}>Presupuesto</span></div>
-              <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: accentColor }} /><span className={`text-[10px] ${D.textMuted}`}>Real</span></div>
-            </div>
-          </>
-        )}
+        <div className="flex items-center justify-between mb-3">
+          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>
+            {selectedCatData ? `${selectedCatData.emoji} ${selectedCatData.nombre}` : 'Gastos'}: Presup. vs Real
+          </p>
+          {selectedCat && <button onClick={() => setSelectedCat(null)} className={`text-[10px] px-2 py-1 rounded-full ${D.bgMuted} ${D.textMuted}`}>Ver todo ✕</button>}
+        </div>
+        <div className="flex items-end gap-1.5 h-44">
+          {chartData.map(m => {
+            const hProy = (m.gp / maxGasto) * 136;
+            const hReal = (m.gr / maxGasto) * 136;
+            return (
+              <div key={m.key} className="flex-1 flex flex-col items-center gap-0.5">
+                {m.gr > 0 && <span className={`text-[7px] font-bold ${D.textMuted}`}>{m.gr >= 1000 ? `${(m.gr/1000).toFixed(1)}k` : m.gr.toFixed(0)}</span>}
+                <div className="w-full flex items-end justify-center gap-px" style={{ height: 132 }}>
+                  <div className={`w-[40%] rounded-t ${D.bgMuted}`} style={{ height: Math.max(hProy, m.gp > 0 ? 4 : 0) }} />
+                  <div className="w-[40%] rounded-t" style={{ height: Math.max(hReal, m.gr > 0 ? 4 : 0), backgroundColor: selectedCatData?.color || accentColor }} />
+                </div>
+                <span className={`text-[9px] ${D.textMuted}`}>{m.label}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-4 mt-2">
+          <div className="flex items-center gap-1.5"><div className={`w-3 h-3 rounded-sm ${D.bgMuted}`} /><span className={`text-[10px] ${D.textMuted}`}>Presupuesto</span></div>
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: selectedCatData?.color || accentColor }} /><span className={`text-[10px] ${D.textMuted}`}>Real</span></div>
+        </div>
       </div>
 
-      {/* Categorías del mes actual */}
-      {analisisCat.length > 0 && (
-        <div>
-          <h2 className={`font-serif text-lg font-semibold mb-2 px-1 ${D.text}`}>
-            {mesActual?.fullLabel || 'Actual'} por categoría
-          </h2>
-          <div className="space-y-1.5">
-            {analisisCat.map(c => (
+      {/* Donut — ¿dónde se va tu dinero? */}
+      {donutData.length > 0 && !selectedCat && (
+        <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
+          <p className={`text-[10px] uppercase tracking-widest mb-3 ${D.textMuted}`}>¿Dónde se va tu dinero? — {periodoLabel}</p>
+          <DonutChart data={donutData} />
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-3">
+            {donutData.slice(0, 10).map(d => (
+              <button key={d.id} onClick={() => setSelectedCat(d.id)} className="flex items-center gap-1.5 py-0.5 text-left">
+                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
+                <span className={`text-[10px] ${D.textSub} truncate flex-1`}>{d.nombre}</span>
+                <span className={`text-[10px] font-bold ${D.text}`}>{d.pct.toFixed(0)}%</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Detalle por categoría — período completo */}
+      <div>
+        <h2 className={`font-serif text-lg font-semibold mb-2 px-1 ${D.text}`}>Detalle — {periodoLabel}</h2>
+        <div className="space-y-1.5">
+          {analisisCat.map(c => {
+            const isZero = c.real === 0 && c.proy === 0;
+            return (
               <div key={c.id}>
-                <button onClick={() => c.subs.length > 0 && setExpandedCat(expandedCat === c.id ? null : c.id)}
-                  className={`w-full rounded-xl border p-3 text-left transition ${D.bgCard} ${D.border} ${c.subs.length > 0 ? 'active:scale-[0.99]' : ''}`}>
-                  <div className="flex items-center gap-3 mb-2">
+                <button onClick={() => { setExpandedCat(expandedCat === c.id ? null : c.id); setSelectedCat(selectedCat === c.id ? null : c.id); }}
+                  className={`w-full rounded-xl border p-3 text-left transition ${D.bgCard} ${D.border} ${selectedCat === c.id ? 'ring-2 ring-offset-1' : ''} ${isZero ? 'opacity-40' : 'active:scale-[0.99]'}`}
+                  style={selectedCat === c.id ? { '--tw-ring-color': c.color } : undefined}>
+                  <div className="flex items-center gap-3 mb-1.5">
                     <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ backgroundColor: (c.color || '#8D99AE') + '22' }}>{c.emoji}</div>
                     <div className="flex-1 min-w-0">
                       <p className={`font-medium text-sm ${D.text}`}>{c.nombre}</p>
                       <p className={`text-[11px] ${D.textMuted}`}>
-                        {c.ejec !== null
-                          ? `${formatMonto(c.real, config.moneda)} / ${formatMonto(c.proy, config.moneda)}`
-                          : `${formatMonto(c.real, config.moneda)}`}
+                        {isZero ? 'Sin movimientos' : c.ejec !== null ? `${formatMonto(c.real, config.moneda)} / ${formatMonto(c.proy, config.moneda)}` : `${formatMonto(c.real, config.moneda)} real`}
                       </p>
                     </div>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badgeColor(c.ejec)}`}>
-                      {c.ejec !== null ? `${c.ejec.toFixed(0)}%` : 'S/P'}
-                    </span>
+                    {!isZero && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badgeColor(c.ejec)}`}>{c.ejec !== null ? `${c.ejec.toFixed(0)}%` : 'S/P'}</span>}
                     {c.subs.length > 0 && <ChevronRight className={`w-4 h-4 transition ${D.textMuted} ${expandedCat === c.id ? 'rotate-90' : ''}`} />}
                   </div>
-                  <div className={`h-1.5 rounded-full overflow-hidden ${D.bgMuted}`}>
-                    <div className={`h-full transition-all ${barColor(c.ejec)}`}
-                      style={{ width: c.ejec !== null ? `${Math.min(c.ejec, 100)}%` : (c.real > 0 ? '100%' : '0%') }} />
-                  </div>
+                  {!isZero && (
+                    <div className={`h-1.5 rounded-full overflow-hidden ${D.bgMuted}`}>
+                      <div className={`h-full transition-all ${barColor(c.ejec)}`} style={{ width: c.ejec !== null ? `${Math.min(c.ejec, 100)}%` : (c.real > 0 ? '100%' : '0%') }} />
+                    </div>
+                  )}
                 </button>
-                {/* Subcategorías expandibles */}
                 {expandedCat === c.id && c.subs.length > 0 && (
                   <div className={`ml-6 mt-1 space-y-1 border-l-2 pl-3 ${D.border}`}>
                     {c.subs.sort((a,b) => b.real - a.real).map(s => {
@@ -1072,13 +1102,9 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
                         <div key={s.name} className={`rounded-lg p-2 ${D.bgMuted}`}>
                           <div className="flex items-center justify-between mb-1">
                             <span className={`text-xs font-medium ${D.textSub}`}>{s.name}</span>
-                            <span className={`text-[10px] font-bold ${badgeColor(sEjec)} px-1.5 py-0.5 rounded-full`}>
-                              {sEjec !== null ? `${sEjec.toFixed(0)}%` : 'S/P'}
-                            </span>
+                            <span className={`text-[10px] font-bold ${badgeColor(sEjec)} px-1.5 py-0.5 rounded-full`}>{sEjec !== null ? `${sEjec.toFixed(0)}%` : 'S/P'}</span>
                           </div>
-                          <p className={`text-[10px] ${D.textMuted}`}>
-                            {sEjec !== null ? `${formatMonto(s.real, config.moneda)} / ${formatMonto(s.proy, config.moneda)}` : formatMonto(s.real, config.moneda)}
-                          </p>
+                          <p className={`text-[10px] ${D.textMuted}`}>{sEjec !== null ? `${formatMonto(s.real, config.moneda)} / ${formatMonto(s.proy, config.moneda)}` : formatMonto(s.real, config.moneda)}</p>
                           <div className={`h-1 rounded-full overflow-hidden mt-1 ${D.bgCard}`}>
                             <div className={`h-full ${barColor(sEjec)}`} style={{ width: sEjec !== null ? `${Math.min(sEjec, 100)}%` : (s.real > 0 ? '100%' : '0%') }} />
                           </div>
@@ -1088,10 +1114,10 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
                   </div>
                 )}
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
-      )}
+      </div>
     </div>
   );
 }
