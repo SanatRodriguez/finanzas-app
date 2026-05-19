@@ -255,19 +255,21 @@ export default function App() {
 
   // ======== CARGAR DATOS ========
   useEffect(() => {
-    (async () => {
-      const cfg = loadL(KEYS.CONFIG, DEFAULT_CONFIG);
-      const cg = loadL(KEYS.CAT_G, DEFAULT_CATEGORIAS_GASTO);
-      const ci = loadL(KEYS.CAT_I, DEFAULT_CATEGORIAS_INGRESO);
-      const url = loadL(KEYS.SCRIPT_URL, '');
-      const cache = loadL(KEYS.TX_CACHE, []);
-      APP_TZ = getTZ(cfg.pais || 'PE');
-      setConfig(cfg); setCatGasto(cg); setCatIngreso(ci); setScriptUrl(url); setTransacciones(cache);
+    // 1. Cargar cache local INMEDIATAMENTE — la app se ve al instante
+    const cfg = loadL(KEYS.CONFIG, DEFAULT_CONFIG);
+    const cg = loadL(KEYS.CAT_G, DEFAULT_CATEGORIAS_GASTO);
+    const ci = loadL(KEYS.CAT_I, DEFAULT_CATEGORIAS_INGRESO);
+    const url = loadL(KEYS.SCRIPT_URL, '');
+    const cache = loadL(KEYS.TX_CACHE, []);
+    APP_TZ = getTZ(cfg.pais || 'PE');
+    setConfig(cfg); setCatGasto(cg); setCatIngreso(ci); setScriptUrl(url); setTransacciones(cache);
+    setLoading(false); // ← la UI ya es usable, no esperamos al servidor
 
-      if (url && navigator.onLine) {
+    // 2. Sincronizar con el servidor EN SEGUNDO PLANO
+    if (url && navigator.onLine) {
+      (async () => {
         try {
           setSyncStatus('syncing');
-          // Flush pending offline actions first
           const pending = getPending();
           for (const action of pending) {
             try {
@@ -289,25 +291,23 @@ export default function App() {
             setCatGasto(g); saveL(KEYS.CAT_G, g);
             setCatIngreso(i); saveL(KEYS.CAT_I, i);
           }
-          // Cargar país desde App_Settings
           try {
             const settings = await apiListSettings(url);
             if (settings.pais) {
-                const paisData = PAISES_LATAM.find(p => p.code === settings.pais);
-                if (paisData) {
-                  cfg.pais = paisData.code;
-                  cfg.moneda = paisData.moneda;
-                  APP_TZ = paisData.tz;
-                  setConfig({...cfg});
-                  saveL(KEYS.CONFIG, cfg);
-                }
+              const paisData = PAISES_LATAM.find(p => p.code === settings.pais);
+              if (paisData) {
+                cfg.pais = paisData.code;
+                cfg.moneda = paisData.moneda;
+                APP_TZ = paisData.tz;
+                setConfig({...cfg});
+                saveL(KEYS.CONFIG, cfg);
               }
-            } catch {}
+            }
+          } catch {}
           setSyncStatus('idle');
         } catch { setSyncStatus('error'); }
-      }
-      setLoading(false);
-    })();
+      })();
+    }
   }, []);
 
   // ======== SYNC ========
@@ -604,6 +604,16 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
 
   return (
     <div className="animate-fade-in" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+      {/* Tabs Rápido / Completo — deslizables y visibles */}
+      <div className={`grid grid-cols-2 gap-1 p-1 rounded-xl mb-4 ${D.bgMuted}`}>
+        <button className={`py-2.5 rounded-lg text-sm font-semibold ${D.bgCard} shadow-sm ${D.text}`}>
+          ⚡ Rápido
+        </button>
+        <button onClick={onFormCompleto} className={`py-2.5 rounded-lg text-sm font-medium ${D.textMuted}`}>
+          Completo →
+        </button>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -613,7 +623,6 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
             {formatFecha(nowLocal())} · {horaLocal()}
           </p>
         </div>
-        <p className={`text-[10px] ${D.textMuted} italic`}>Desliza → completo</p>
       </div>
 
       {/* Toggle Gasto/Ingreso */}
@@ -795,6 +804,104 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
             style={{ width: `${Math.min(stats.ejecucion, 100)}%` }} />
         </div>
       </div>
+
+      {/* ===== ESTADO DEL PRESUPUESTO — ritmo del mes ===== */}
+      {(() => {
+        const hoy = nowLocal();
+        const totalDias = Math.round((mesActual.fin - mesActual.inicio) / 86400000) + 1;
+        const diasTranscurridos = Math.max(0, Math.min(totalDias, Math.round((hoy - mesActual.inicio) / 86400000) + 1));
+        const pctTiempo = (diasTranscurridos / totalDias) * 100;
+        const pctGasto = stats.gastoProy > 0 ? (stats.gastoReal / stats.gastoProy) * 100 : 0;
+        const enRitmo = pctGasto <= pctTiempo + 5;
+        const esMesActivo = hoy >= mesActual.inicio && hoy <= mesActual.fin;
+
+        // Alertas por categoría: gastando más rápido que el ritmo del mes
+        const catMap = {};
+        txDelMes.filter(t => t.tipo === 'gasto').forEach(t => {
+          if (!catMap[t.categoria]) catMap[t.categoria] = { proy: 0, real: 0 };
+          if (t.tipoRegistro === 'proyectado') catMap[t.categoria].proy += Number(t.monto);
+          else catMap[t.categoria].real += Number(t.monto);
+        });
+        const alertas = Object.entries(catMap)
+          .map(([id, v]) => {
+            const cat = findCat('gasto', id);
+            const pct = v.proy > 0 ? (v.real / v.proy) * 100 : (v.real > 0 ? 999 : 0);
+            return { id, nombre: cat.nombre, emoji: cat.emoji, color: cat.color, pct, real: v.real, proy: v.proy };
+          })
+          .filter(c => c.proy > 0 && c.pct > pctTiempo + 10)
+          .sort((a, b) => b.pct - a.pct)
+          .slice(0, 3);
+
+        return (
+          <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
+            <p className={`text-[10px] uppercase tracking-widest mb-3 ${D.textMuted}`}>Estado del presupuesto</p>
+
+            {/* Doble barra: tiempo vs gasto */}
+            <div className="space-y-2 mb-3">
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className={`text-[11px] ${D.textSub}`}>Mes transcurrido</span>
+                  <span className={`text-[11px] font-bold ${D.text}`}>{pctTiempo.toFixed(0)}%</span>
+                </div>
+                <div className={`h-2 rounded-full overflow-hidden ${D.bgMuted}`}>
+                  <div className="h-full bg-stone-400" style={{ width: `${Math.min(pctTiempo, 100)}%` }} />
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className={`text-[11px] ${D.textSub}`}>Gasto ejecutado</span>
+                  <span className={`text-[11px] font-bold ${pctGasto <= pctTiempo + 5 ? 'text-emerald-600' : pctGasto <= 100 ? 'text-amber-600' : 'text-red-600'}`}>{pctGasto.toFixed(0)}%</span>
+                </div>
+                <div className={`h-2 rounded-full overflow-hidden ${D.bgMuted}`}>
+                  <div className={`h-full transition-all ${pctGasto <= pctTiempo + 5 ? 'bg-emerald-500' : pctGasto <= 100 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${Math.min(pctGasto, 100)}%` }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Veredicto */}
+            {esMesActivo && (
+              <div className={`rounded-xl p-2.5 mb-3 text-xs font-medium flex items-center gap-2 ${enRitmo ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                {enRitmo
+                  ? <>✓ Vas en buen ritmo. Llevas {pctGasto.toFixed(0)}% gastado con {pctTiempo.toFixed(0)}% del mes.</>
+                  : <>⚠ Vas adelantado. Gastaste {pctGasto.toFixed(0)}% y solo va {pctTiempo.toFixed(0)}% del mes.</>}
+              </div>
+            )}
+
+            {/* Excedente proyectado */}
+            <div className={`flex items-center justify-between rounded-xl p-2.5 mb-3 ${D.bgMuted}`}>
+              <span className={`text-[11px] ${D.textSub}`}>Excedente proyectado</span>
+              <span className={`text-sm font-bold ${stats.balanceProy >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {hidden ? `${config.moneda} ••••` : `${stats.balanceProy >= 0 ? '+' : ''}${formatMonto(stats.balanceProy, config.moneda)}`}
+              </span>
+            </div>
+
+            {/* Alertas de categorías */}
+            {alertas.length > 0 ? (
+              <div>
+                <p className={`text-[10px] uppercase tracking-widest mb-1.5 ${D.textMuted}`}>⚠ Atención en</p>
+                <div className="space-y-1.5">
+                  {alertas.map(a => (
+                    <div key={a.id} className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-sm flex-shrink-0" style={{ backgroundColor: (a.color || '#8D99AE') + '22' }}>{a.emoji}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between">
+                          <span className={`text-[11px] font-medium ${D.text} truncate`}>{a.nombre}</span>
+                          <span className={`text-[11px] font-bold ${a.pct > 100 ? 'text-red-600' : 'text-amber-600'}`}>{a.pct >= 999 ? 'S/P' : `${a.pct.toFixed(0)}%`}</span>
+                        </div>
+                        <div className={`h-1.5 rounded-full overflow-hidden mt-0.5 ${D.bgMuted}`}>
+                          <div className={`h-full ${a.pct > 100 ? 'bg-red-500' : 'bg-amber-500'}`} style={{ width: `${Math.min(a.pct, 100)}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : esMesActivo && (
+              <p className={`text-[11px] text-center ${D.textMuted}`}>✓ Ninguna categoría en alerta</p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Últimos movimientos REALES */}
       <div>
