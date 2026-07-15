@@ -572,7 +572,19 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
   const [tipoRegistro, setTipoRegistro] = useState('real');
   const [categoria, setCategoria] = useState('');
   const [detalle, setDetalle] = useState('');
+  const [ultimoRegistro, setUltimoRegistro] = useState(null);
   const touchRef = useRef(null);
+  const dismissTimerRef = useRef(null);
+
+  const compartirRegistro = () => {
+    if (!ultimoRegistro) return;
+    const mensaje = ultimoRegistro.mensaje;
+    if (navigator.share) {
+      navigator.share({ text: mensaje }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(mensaje);
+    }
+  };
 
   const handleTouchStart = (e) => { touchRef.current = e.touches[0].clientX; };
   const handleTouchEnd = (e) => {
@@ -596,7 +608,34 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
     const m = parseFloat(monto.replace(',', '.'));
     if (!m || !categoria) { if (!m) return; if (!categoria) { /* auto-seleccionar primera */ return; } }
     const fechaStr = tipoRegistro === 'real' ? toISOFechaHora() : toISODate(nowLocal());
-    onGuardar({ tipo, tipoRegistro, categoria, subcategoria: '', detalle, monto: m, fecha: fechaStr, persona: config.persona, veces: 1 });
+    const nuevaTx = { tipo, tipoRegistro, categoria, subcategoria: '', detalle, monto: m, fecha: fechaStr, persona: config.persona, veces: 1 };
+    onGuardar(nuevaTx);
+
+    // ===== Armar mensaje para compartir (presupuesto de la categoría este mes) =====
+    const catInfo = cats.find(c => c.id === categoria);
+    const rango = getRangoMesFinanciero(nowLocal(), config.diaInicioMes, config.ajustarFinDeSemana);
+    const txMes = [...(transacciones || []), nuevaTx].filter(t => {
+      if (!t.fecha || t.categoria !== categoria || t.tipo !== 'gasto') return false;
+      const f = parseFechaLima(extraerFecha(t.fecha));
+      return f >= rango.inicio && f <= rango.fin;
+    });
+    const presupuestoCat = txMes.filter(t => t.tipoRegistro === 'proyectado').reduce((s, t) => s + Number(t.monto), 0);
+    const gastadoCat = txMes.filter(t => t.tipoRegistro === 'real').reduce((s, t) => s + Number(t.monto), 0);
+    const saldoRestanteCat = presupuestoCat - gastadoCat;
+
+    const nombreCat = catInfo ? `${catInfo.emoji} ${catInfo.nombre}` : categoria;
+    let mensaje = `📌 Nuevo registro\n` +
+      `Fecha: ${formatFecha(nowLocal())}\n` +
+      `Monto: ${formatMonto(m, config.moneda)}\n` +
+      `Categoría: ${nombreCat}`;
+    if (tipo === 'gasto' && presupuestoCat > 0) {
+      mensaje += `\nPresupuesto utilizado: ${formatMonto(gastadoCat, config.moneda)} — Saldo restante: ${formatMonto(saldoRestanteCat, config.moneda)}`;
+    }
+
+    if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+    setUltimoRegistro({ mensaje });
+    dismissTimerRef.current = setTimeout(() => setUltimoRegistro(null), 8000);
+
     setMonto(''); setCategoria(''); setDetalle('');
   };
 
@@ -697,6 +736,24 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
         <p className={`text-center text-[11px] mt-2 ${D.textMuted}`}>
           Se guardará localmente y se sincronizará al conectarte
         </p>
+      )}
+
+      {/* ===== TARJETA COMPARTIR (aparece tras guardar) ===== */}
+      {ultimoRegistro && (
+        <div className={`mt-4 p-4 rounded-2xl border animate-fade-in ${D.bgCard} ${D.border}`}>
+          <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>Registrado ✓</p>
+          <pre className={`text-xs whitespace-pre-wrap font-sans mb-3 ${D.textSub}`}>{ultimoRegistro.mensaje}</pre>
+          <div className="flex gap-2">
+            <button onClick={compartirRegistro}
+              className="flex-1 py-2.5 bg-stone-900 text-white font-semibold rounded-xl text-sm transition active:scale-[0.98]">
+              📤 Compartir a grupo
+            </button>
+            <button onClick={() => setUltimoRegistro(null)}
+              className={`px-4 py-2.5 rounded-xl text-sm font-medium border ${D.border} ${D.textMuted}`}>
+              ✕
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
