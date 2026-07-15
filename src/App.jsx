@@ -156,6 +156,25 @@ const formatFecha = (d) => `${String(d.getDate()).padStart(2,'0')}/${String(d.ge
 const formatFechaCorta = (d) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
 const NOMBRES_MES_LARGO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
+// Desplaza una fecha (con o sin hora) N días, preservando la parte de hora si existe
+const shiftFechaStr = (fechaStr, diffDays) => {
+  const datePart = extraerFecha(fechaStr);
+  const timePart = fechaStr.length > 10 ? fechaStr.substring(10) : '';
+  const [y, m, d] = datePart.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + diffDays);
+  return toISODate(dt) + timePart;
+};
+
+// Diferencia en días entre dos fechas "YYYY-MM-DD"
+const diffEnDias = (fechaA, fechaB) => {
+  const [ya, ma, da] = fechaA.split('-').map(Number);
+  const [yb, mb, db] = fechaB.split('-').map(Number);
+  const dA = new Date(ya, ma - 1, da);
+  const dB = new Date(yb, mb - 1, db);
+  return Math.round((dB - dA) / 86400000);
+};
+
 // ============ STORAGE LOCAL ============
 const KEYS = {
   TX_CACHE: 'fin:tx', CONFIG: 'fin:cfg', CAT_G: 'fin:cg', CAT_I: 'fin:ci',
@@ -193,6 +212,7 @@ const apiSaveMany = (u, txs) => api(u, 'POST', { action: 'saveMany', txs });
 const apiDelete = (u, id) => api(u, 'POST', { action: 'delete', id });
 const apiDeleteGroup = (u, gid, fromDate) => api(u, 'POST', { action: 'deleteGroup', grupoId: gid, fromDate });
 const apiUpdate = (u, id, changes) => api(u, 'POST', { action: 'update', id, changes });
+const apiShiftGroup = (u, grupoId, fromDate, diffDays, excludeId) => api(u, 'POST', { action: 'shiftGroup', grupoId, fromDate, diffDays, excludeId });
 const apiReplaceAll = (u, txs) => api(u, 'POST', { action: 'replaceAll', txs });
 const apiListCats = async (u) => { const r = await api(u, 'GET', { action: 'listCats' }); return r.data || []; };
 const apiSaveCat = (u, cat) => api(u, 'POST', { action: 'saveCat', cat });
@@ -277,6 +297,7 @@ export default function App() {
               else if (action.type === 'saveMany') await apiSaveMany(url, action.txs);
               else if (action.type === 'delete') await apiDelete(url, action.id);
               else if (action.type === 'update') await apiUpdate(url, action.id, action.changes);
+              else if (action.type === 'shiftGroup') await apiShiftGroup(url, action.grupoId, action.fromDate, action.diffDays, action.excludeId);
             } catch {}
           }
           if (pending.length > 0) clearPending();
@@ -322,6 +343,7 @@ export default function App() {
           else if (a.type === 'saveMany') await apiSaveMany(scriptUrl, a.txs);
           else if (a.type === 'delete') await apiDelete(scriptUrl, a.id);
           else if (a.type === 'update') await apiUpdate(scriptUrl, a.id, a.changes);
+          else if (a.type === 'shiftGroup') await apiShiftGroup(scriptUrl, a.grupoId, a.fromDate, a.diffDays, a.excludeId);
         } catch {}
       }
       if (pending.length > 0) clearPending();
@@ -340,13 +362,36 @@ export default function App() {
   // ======== ACCIONES (con soporte offline) ========
   const updateLocal = (newTxs) => { setTransacciones(newTxs); saveL(KEYS.TX_CACHE, newTxs); };
 
-  const guardarTx = async (tx) => {
+  const guardarTx = async (tx, cascada = null) => {
     if (tx.id) {
-      const updated = { ...tx, monto: parseFloat(tx.monto) || 0 };
-      updateLocal(transacciones.map(t => t.id === tx.id ? updated : t));
-      setShowFormCompleto(false); setEditTx(null); showToast('Actualizado ✓');
-      if (scriptUrl && online) { try { setSyncStatus('syncing'); await apiSave(scriptUrl, updated); setSyncStatus('idle'); } catch { setSyncStatus('error'); addPending({ type: 'save', tx: updated }); } }
-      else if (scriptUrl) addPending({ type: 'save', tx: updated });
+      const updatedTx = { ...tx, monto: parseFloat(tx.monto) || 0 };
+      let nuevas = transacciones.map(t => t.id === tx.id ? updatedTx : t);
+      if (cascada && cascada.diffDays) {
+        nuevas = nuevas.map(t => {
+          if (t.grupoId !== updatedTx.grupoId || t.id === updatedTx.id) return t;
+          const datePart = extraerFecha(t.fecha);
+          if (datePart < cascada.fromDate) return t; // solo el mes editado en adelante
+          return { ...t, fecha: shiftFechaStr(t.fecha, cascada.diffDays) };
+        });
+      }
+      updateLocal(nuevas);
+      setShowFormCompleto(false); setEditTx(null);
+      showToast(cascada && cascada.diffDays ? 'Actualizado (fechas futuras ajustadas) ✓' : 'Actualizado ✓');
+      if (scriptUrl && online) {
+        try {
+          setSyncStatus('syncing');
+          await apiSave(scriptUrl, updatedTx);
+          if (cascada && cascada.diffDays) await apiShiftGroup(scriptUrl, updatedTx.grupoId, cascada.fromDate, cascada.diffDays, updatedTx.id);
+          setSyncStatus('idle');
+        } catch {
+          setSyncStatus('error');
+          addPending({ type: 'save', tx: updatedTx });
+          if (cascada && cascada.diffDays) addPending({ type: 'shiftGroup', grupoId: updatedTx.grupoId, fromDate: cascada.fromDate, diffDays: cascada.diffDays, excludeId: updatedTx.id });
+        }
+      } else if (scriptUrl) {
+        addPending({ type: 'save', tx: updatedTx });
+        if (cascada && cascada.diffDays) addPending({ type: 'shiftGroup', grupoId: updatedTx.grupoId, fromDate: cascada.fromDate, diffDays: cascada.diffDays, excludeId: updatedTx.id });
+      }
     } else {
       const baseId = `tx_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
       const veces = Math.max(1, Math.min(12, parseInt(tx.veces) || 1));
@@ -1408,15 +1453,22 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
   const [monto, setMonto] = useState(tx?.monto || '');
   const [fecha, setFecha] = useState(tx?.fecha || toISODate(nowLocal()));
   const [veces, setVeces] = useState(1);
+  const [aplicarFuturos, setAplicarFuturos] = useState(false);
   const [showAllCats, setShowAllCats] = useState(false);
   const cats = tipo === 'gasto' ? catGasto : catIngreso;
   const editando = !!tx?.id;
+  const fechaOriginal = tx?.fecha ? extraerFecha(tx.fecha) : null;
+  const fechaCambio = editando && fechaOriginal && fecha !== fechaOriginal;
 
   const submit = () => {
     if (!categoria || !monto) return;
+    let cascada = null;
+    if (editando && tx.grupoId && aplicarFuturos && fechaCambio) {
+      cascada = { fromDate: fechaOriginal, diffDays: diffEnDias(fechaOriginal, fecha) };
+    }
     onGuardar({ ...(tx?.id ? { id: tx.id, grupoId: tx.grupoId } : {}),
       tipo, tipoRegistro, categoria, subcategoria, detalle,
-      monto: parseFloat(monto), fecha, persona: config.persona, veces: editando ? 1 : veces });
+      monto: parseFloat(monto), fecha, persona: config.persona, veces: editando ? 1 : veces }, cascada);
   };
 
   return (
@@ -1474,6 +1526,27 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
             <label className={`text-[10px] uppercase tracking-widest mb-1 block ${D.textMuted}`}>Fecha</label>
             <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} className={`w-full px-3 py-2 rounded-xl text-sm border outline-none ${D.bgInput} ${D.border} ${D.text}`} />
           </div>
+          {/* Aplicar cambio de fecha a futuros del grupo */}
+          {editando && tx.grupoId && fechaCambio && (
+            <div>
+              <label className={`text-[10px] uppercase tracking-widest mb-1.5 block ${D.textMuted}`}>Aplicar cambio de fecha a</label>
+              <div className="flex gap-1.5">
+                <button onClick={() => setAplicarFuturos(false)}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${!aplicarFuturos ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+                  Solo este mes
+                </button>
+                <button onClick={() => setAplicarFuturos(true)}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${aplicarFuturos ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+                  Este mes en adelante
+                </button>
+              </div>
+              {aplicarFuturos && (
+                <p className={`text-[10px] mt-1 ${D.textMuted}`}>
+                  Los meses futuros de esta serie se moverán {Math.abs(diffEnDias(fechaOriginal, fecha))} día(s) {diffEnDias(fechaOriginal, fecha) > 0 ? 'hacia adelante' : 'hacia atrás'}.
+                </p>
+              )}
+            </div>
+          )}
           {/* Recurrencia */}
           {!editando && (
             <div>
