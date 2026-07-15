@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Wallet, TrendingUp, TrendingDown, Plus, Trash2, Calendar,
-  PieChart, BarChart3, Settings, ChevronLeft, ChevronRight,
+  PieChart, BarChart3, Settings, ChevronLeft, ChevronRight, ChevronDown,
   Download, Upload, X, Check, AlertCircle, Repeat, Zap, WifiOff, RefreshCw
 } from 'lucide-react';
 
@@ -634,7 +634,6 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
 
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
     setUltimoRegistro({ mensaje });
-    dismissTimerRef.current = setTimeout(() => setUltimoRegistro(null), 8000);
 
     setMonto(''); setCategoria(''); setDetalle('');
   };
@@ -995,7 +994,8 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
 // ============ REGISTRO ============
 function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, onNavMes, onMarcarReal, onEditar, onEliminar, filtroInicial, onFiltroUsado }) {
   const [filtro, setFiltro] = useState(filtroInicial || 'real');
-  
+  const [colapsados, setColapsados] = useState(new Set());
+
   // Si viene un filtro externo, aplicarlo
   React.useEffect(() => {
     if (filtroInicial) {
@@ -1016,6 +1016,54 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
     else if (filtro === 'ingreso') f = f.filter(t => t.tipo === 'ingreso');
     return f.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
   }, [transacciones, filtro]);
+
+  // ===== Agrupar por día: reales (ingreso/gasto) separado de presupuestado =====
+  const grupos = useMemo(() => {
+    const mapa = new Map();
+    filtradas.forEach(tx => {
+      const key = extraerFecha(tx.fecha);
+      if (!mapa.has(key)) mapa.set(key, { key, real: [], proy: [] });
+      const g = mapa.get(key);
+      if (tx.tipoRegistro === 'proyectado') g.proy.push(tx); else g.real.push(tx);
+    });
+    return Array.from(mapa.values())
+      .sort((a, b) => b.key.localeCompare(a.key))
+      .map(g => {
+        const ingresosReal = g.real.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + Number(t.monto), 0);
+        const gastosReal = g.real.filter(t => t.tipo === 'gasto').reduce((s, t) => s + Number(t.monto), 0);
+        return { ...g, ingresosReal, gastosReal, neto: ingresosReal - gastosReal };
+      });
+  }, [filtradas]);
+
+  const toggleDia = (key) => {
+    setColapsados(prev => {
+      const n = new Set(prev);
+      if (n.has(key)) n.delete(key); else n.add(key);
+      return n;
+    });
+  };
+
+  const renderTx = (tx) => {
+    const c = findCat(tx.tipo, tx.categoria);
+    const f = parseFechaLima(tx.fecha);
+    const esProy = tx.tipoRegistro === 'proyectado';
+    return (
+      <div key={tx.id} onClick={() => onEditar(tx)} className={`rounded-xl border p-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <p className={`font-medium text-sm truncate ${D.text}`}>{tx.detalle || c.nombre}</p>
+            {esProy && <span className="text-[8px] uppercase tracking-wide bg-stone-200 text-stone-600 px-1 py-0.5 rounded font-bold">Presup.</span>}
+            {tx.grupoId && <Repeat className="w-3 h-3 text-stone-400" />}
+          </div>
+          <p className={`text-[11px] ${D.textMuted}`}>{formatFechaCorta(f)}{extraerHora(tx.fecha) ? ` ${extraerHora(tx.fecha)}` : ''} · {c.nombre}</p>
+        </div>
+        <div className={`font-serif font-semibold text-sm ${tx.tipo === 'gasto' ? D.text : 'text-emerald-600'}`}>
+          {tx.tipo === 'gasto' ? '−' : '+'}{formatMonto(tx.monto, config.moneda).replace(config.moneda + ' ', '')}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-3 animate-fade-in">
@@ -1041,31 +1089,52 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
         ))}
       </div>
 
-      {/* Lista */}
-      {filtradas.length === 0 ? (
+      {/* Lista agrupada por día */}
+      {grupos.length === 0 ? (
         <div className={`rounded-2xl border border-dashed p-8 text-center ${D.bgCard} ${D.borderMuted}`}>
           <p className={`text-sm ${D.textMuted}`}>Sin registros con este filtro</p>
         </div>
       ) : (
-        <div className="space-y-1.5">
-          {filtradas.map(tx => {
-            const c = findCat(tx.tipo, tx.categoria);
-            const f = parseFechaLima(tx.fecha);
-            const esProy = tx.tipoRegistro === 'proyectado';
+        <div className="space-y-3">
+          {grupos.map(g => {
+            const abierto = !colapsados.has(g.key);
+            const fechaLabel = formatFecha(parseFechaLima(g.key));
             return (
-              <div key={tx.id} onClick={() => onEditar(tx)} className={`rounded-xl border p-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
-                <div className="flex-1 min-w-0">
+              <div key={g.key} className={`rounded-2xl border overflow-hidden ${D.bgCard} ${D.border}`}>
+                {/* Encabezado del día */}
+                <button onClick={() => toggleDia(g.key)} className="w-full flex items-center justify-between px-3 py-2.5">
                   <div className="flex items-center gap-1.5">
-                    <p className={`font-medium text-sm truncate ${D.text}`}>{tx.detalle || c.nombre}</p>
-                    {esProy && <span className="text-[8px] uppercase tracking-wide bg-stone-200 text-stone-600 px-1 py-0.5 rounded font-bold">Presup.</span>}
-                    {tx.grupoId && <Repeat className="w-3 h-3 text-stone-400" />}
+                    {abierto ? <ChevronDown className={`w-4 h-4 ${D.textMuted}`} /> : <ChevronRight className={`w-4 h-4 ${D.textMuted}`} />}
+                    <span className={`font-serif text-sm font-semibold ${D.text}`}>{fechaLabel}</span>
                   </div>
-                  <p className={`text-[11px] ${D.textMuted}`}>{formatFechaCorta(f)}{extraerHora(tx.fecha) ? ` ${extraerHora(tx.fecha)}` : ''} · {c.nombre}</p>
-                </div>
-                <div className={`font-serif font-semibold text-sm ${tx.tipo === 'gasto' ? D.text : 'text-emerald-600'}`}>
-                  {tx.tipo === 'gasto' ? '−' : '+'}{formatMonto(tx.monto, config.moneda).replace(config.moneda + ' ', '')}
-                </div>
+                  {g.real.length > 0 && (
+                    <span className={`text-xs font-semibold ${g.neto >= 0 ? 'text-emerald-600' : D.text}`}>
+                      Real: {g.neto >= 0 ? '+' : ''}{formatMonto(g.neto, config.moneda)}
+                    </span>
+                  )}
+                </button>
+
+                {abierto && (
+                  <div className="px-3 pb-3 space-y-2">
+                    {g.real.length > 0 && (
+                      <div className={`flex gap-3 text-[11px] ${D.textMuted} px-0.5`}>
+                        <span>💰 Ingresos: {formatMonto(g.ingresosReal, config.moneda)}</span>
+                        <span>💸 Gastos: {formatMonto(g.gastosReal, config.moneda)}</span>
+                      </div>
+                    )}
+                    {g.real.length > 0 && (
+                      <div className="space-y-1.5">
+                        {g.real.map(renderTx)}
+                      </div>
+                    )}
+                    {g.proy.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>📅 Presupuestado (proyectado)</p>
+                        {g.proy.map(renderTx)}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
