@@ -629,11 +629,10 @@ function OfflineMsg({ D }) {
 function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, D, online, onFormCompleto }) {
   const [monto, setMonto] = useState('');
   const [tipo, setTipo] = useState('gasto');
-  const [tipoRegistro, setTipoRegistro] = useState('real');
+  const tipoRegistro = 'real'; // Registro Rápido siempre es 'real'; presupuesto se hace desde "Completo"
   const [categoria, setCategoria] = useState('');
   const [detalle, setDetalle] = useState('');
   const [ultimoRegistro, setUltimoRegistro] = useState(null);
-  const touchRef = useRef(null);
   const dismissTimerRef = useRef(null);
 
   const compartirRegistro = () => {
@@ -646,23 +645,35 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
     }
   };
 
-  const handleTouchStart = (e) => { touchRef.current = e.touches[0].clientX; };
-  const handleTouchEnd = (e) => {
-    if (touchRef.current === null) return;
-    const diff = e.changedTouches[0].clientX - touchRef.current;
-    if (diff > 80) onFormCompleto();
-    touchRef.current = null;
-  };
-
   const cats = tipo === 'gasto' ? catGasto : catIngreso;
-  const topCats = useMemo(() => {
-    const counts = {};
-    (transacciones || []).filter(t => t.tipo === tipo).forEach(t => { counts[t.categoria] = (counts[t.categoria] || 0) + 1; });
-    const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]).map(([id]) => id);
-    const top = sorted.slice(0, 6);
+
+  const rango = useMemo(() => getRangoMesFinanciero(nowLocal(), config.diaInicioMes, config.ajustarFinDeSemana), [config]);
+
+  // Últimas 6 categorías usadas (por fecha más reciente), sin repetir
+  const catsRecientes = useMemo(() => {
+    const vistas = new Set();
+    const orden = [];
+    [...(transacciones || [])]
+      .filter(t => t.tipo === tipo)
+      .sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
+      .forEach(t => { if (!vistas.has(t.categoria)) { vistas.add(t.categoria); orden.push(t.categoria); } });
+    const top = orden.slice(0, 6);
     if (top.length < 6) cats.forEach(c => { if (!top.includes(c.id) && top.length < 6) top.push(c.id); });
     return top.map(id => cats.find(c => c.id === id)).filter(Boolean);
   }, [transacciones, tipo, cats]);
+
+  // Las 6 categorías más usadas en el período (mes financiero) actual
+  const catsFrecuentes = useMemo(() => {
+    const counts = {};
+    (transacciones || []).filter(t => t.tipo === tipo && t.fecha).forEach(t => {
+      const f = parseFechaLima(extraerFecha(t.fecha));
+      if (f >= rango.inicio && f <= rango.fin) counts[t.categoria] = (counts[t.categoria] || 0) + 1;
+    });
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([id]) => id);
+    const top = sorted.slice(0, 6);
+    if (top.length < 6) cats.forEach(c => { if (!top.includes(c.id) && top.length < 6) top.push(c.id); });
+    return top.map(id => cats.find(c => c.id === id)).filter(Boolean);
+  }, [transacciones, tipo, cats, rango]);
 
   const guardar = () => {
     const m = parseFloat(monto.replace(',', '.'));
@@ -701,78 +712,80 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
   const cat = cats.find(c => c.id === categoria);
 
   return (
-    <div className="animate-fade-in" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      {/* Tabs Rápido / Completo — deslizables y visibles */}
-      <div className={`grid grid-cols-2 gap-1 p-1 rounded-xl mb-4 ${D.bgMuted}`}>
-        <button className={`py-2.5 rounded-lg text-sm font-semibold ${D.bgCard} shadow-sm ${D.text}`}>
-          ⚡ Rápido
-        </button>
-        <button onClick={onFormCompleto} className={`py-2.5 rounded-lg text-sm font-medium ${D.textMuted}`}>
-          Completo →
-        </button>
-      </div>
-
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+    <div className="animate-fade-in">
+      {/* Header: Registrar + fecha a la izquierda, Gasto/Ingreso chico a la derecha */}
+      <div className="flex items-center justify-between mb-3">
         <div>
-          <h1 className={`font-serif text-2xl font-semibold ${D.text}`}>Registrar<span style={{ color: ACENTOS[config.acento || 'amber'].dot }}>.</span></h1>
+          <h1 className={`font-serif text-xl font-semibold ${D.text}`}>Registrar<span style={{ color: ACENTOS[config.acento || 'amber'].dot }}>.</span></h1>
           <p className={`text-[11px] ${D.textMuted}`}>
             {!online && <><WifiOff className="w-3 h-3 inline mr-1" />Offline · </>}
             {formatFecha(nowLocal())} · {horaLocal()}
           </p>
         </div>
-      </div>
-
-      {/* Toggle Gasto/Ingreso */}
-      <div className={`grid grid-cols-2 gap-1 p-1 rounded-xl mb-5 ${D.bgMuted}`}>
-        {['gasto', 'ingreso'].map(t => (
-          <button key={t} onClick={() => { setTipo(t); setCategoria(''); }}
-            className={`py-2 rounded-lg text-sm font-medium transition capitalize ${tipo === t ? D.bgCard + ' shadow-sm ' + D.text : D.textMuted}`}>
-            {t === 'gasto' ? '💸 Gasto' : '💰 Ingreso'}
-          </button>
-        ))}
-      </div>
-
-      {/* MONTO */}
-      <div className="text-center mb-5">
-        <div className="flex items-baseline justify-center gap-1.5">
-          <span className={`font-serif text-2xl ${D.textMuted}`}>{config.moneda}</span>
-          <span className={`font-serif text-6xl font-bold tracking-tight ${monto ? D.text : D.textMuted}`}>{monto || '0'}</span>
-        </div>
-        {/* Real/Presupuesto */}
-        <div className={`flex gap-2 justify-center mt-3 ${D.textMuted}`}>
-          {['real','proyectado'].map(t => (
-            <button key={t} onClick={() => setTipoRegistro(t)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition ${tipoRegistro === t ? 'bg-stone-900 text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
-              {t === 'real' ? '⚡ Real' : '📅 Presup.'}
+        <div className={`flex p-1 rounded-full ${D.bgMuted}`}>
+          {['gasto', 'ingreso'].map(t => (
+            <button key={t} onClick={() => { setTipo(t); setCategoria(''); }}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${tipo === t ? D.bgCard + ' shadow-sm ' + D.text : D.textMuted}`}>
+              {t === 'gasto' ? '💸 Gasto' : '💰 Ingreso'}
             </button>
           ))}
         </div>
       </div>
 
+      {/* Tabs Rápido / Completo — tap claro, sin swipe */}
+      <div className={`grid grid-cols-2 gap-1 p-1 rounded-xl mb-3 ${D.bgMuted}`}>
+        <button className={`py-2 rounded-lg text-sm font-semibold ${D.bgCard} shadow-sm ${D.text}`}>
+          ⚡ Rápido
+        </button>
+        <button onClick={onFormCompleto} className={`py-2 rounded-lg text-sm font-medium transition active:scale-[0.98] ${D.textMuted}`}>
+          Completo →
+        </button>
+      </div>
+
+      {/* MONTO */}
+      <div className="text-center mb-3">
+        <div className="flex items-baseline justify-center gap-1.5">
+          <span className={`font-serif text-xl ${D.textMuted}`}>{config.moneda}</span>
+          <span className={`font-serif text-5xl font-bold tracking-tight ${monto ? D.text : D.textMuted}`}>{monto || '0'}</span>
+        </div>
+      </div>
+
       {/* TECLADO NUMÉRICO */}
-      <div className="grid grid-cols-3 gap-1.5 mb-4">
+      <div className="grid grid-cols-3 gap-1.5 mb-3">
         {['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k => (
           <button key={k} onClick={() => {
               if (k === '⌫') setMonto(m => m.slice(0, -1));
               else if (k === '.' && monto.includes('.')) return;
               else setMonto(m => m + k);
             }}
-            className={`h-12 rounded-xl font-serif text-xl font-medium transition active:scale-95 ${k === '⌫' ? D.bgMuted + ' ' + D.textMuted : D.bgCard + ' border ' + D.border + ' ' + D.text}`}>
+            className={`h-11 rounded-xl font-serif text-lg font-medium transition active:scale-95 ${k === '⌫' ? D.bgMuted + ' ' + D.textMuted : D.bgCard + ' border ' + D.border + ' ' + D.text}`}>
             {k}
           </button>
         ))}
       </div>
 
-      {/* CATEGORÍAS TOP 6 */}
-      <div className="mb-3">
-        <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>Categoría</p>
+      {/* CATEGORÍAS: recientes + frecuentes del período */}
+      <div className="mb-2">
+        <p className={`text-[10px] uppercase tracking-widest mb-1.5 ${D.textMuted}`}>Recientes</p>
         <div className="grid grid-cols-6 gap-1.5">
-          {topCats.map(c => (
+          {catsRecientes.map(c => (
             <button key={c.id} onClick={() => setCategoria(c.id)}
               className={`p-1.5 rounded-xl border-2 flex flex-col items-center gap-0.5 transition active:scale-95 ${D.bgCard} ${categoria === c.id ? '' : D.border}`}
               style={{ borderColor: categoria === c.id ? c.color : undefined }}>
-              <span className="text-xl">{c.emoji}</span>
+              <span className="text-lg">{c.emoji}</span>
+              <span className={`text-[8px] leading-tight text-center font-medium ${D.textSub}`}>{c.nombre.split(' ')[0]}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mb-3">
+        <p className={`text-[10px] uppercase tracking-widest mb-1.5 ${D.textMuted}`}>Frecuentes este mes</p>
+        <div className="grid grid-cols-6 gap-1.5">
+          {catsFrecuentes.map(c => (
+            <button key={c.id} onClick={() => setCategoria(c.id)}
+              className={`p-1.5 rounded-xl border-2 flex flex-col items-center gap-0.5 transition active:scale-95 ${D.bgCard} ${categoria === c.id ? '' : D.border}`}
+              style={{ borderColor: categoria === c.id ? c.color : undefined }}>
+              <span className="text-lg">{c.emoji}</span>
               <span className={`text-[8px] leading-tight text-center font-medium ${D.textSub}`}>{c.nombre.split(' ')[0]}</span>
             </button>
           ))}
@@ -782,14 +795,16 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
       {/* DETALLE */}
       <input type="text" value={detalle} onChange={e => setDetalle(e.target.value)}
         placeholder="Detalle rápido (opcional)"
-        className={`w-full px-3 py-2 rounded-xl text-sm border outline-none mb-3 ${D.bgInput} ${D.border} ${D.text}`} />
+        className={`w-full px-3 py-2 rounded-xl text-sm border outline-none mb-2 ${D.bgInput} ${D.border} ${D.text}`} />
 
-      {/* GUARDAR */}
-      <button onClick={guardar}
-        disabled={!monto || parseFloat(monto.replace(',','.')) <= 0 || !categoria}
-        className="w-full py-3.5 bg-stone-900 text-white font-semibold rounded-xl text-base transition disabled:opacity-30 active:scale-[0.98] shadow-lg">
-        {cat ? `${cat.emoji} Guardar ${tipo}` : 'Selecciona categoría'}
-      </button>
+      {/* GUARDAR — fijo sobre el nav inferior, siempre visible */}
+      <div className={`sticky z-20 pt-1 pb-1 ${D.bg}`} style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))' }}>
+        <button onClick={guardar}
+          disabled={!monto || parseFloat(monto.replace(',','.')) <= 0 || !categoria}
+          className="w-full py-3 bg-stone-900 text-white font-semibold rounded-xl text-base transition disabled:opacity-30 active:scale-[0.98] shadow-lg">
+          {cat ? `${cat.emoji} Guardar ${tipo}` : 'Selecciona categoría'}
+        </button>
+      </div>
 
       {!online && (
         <p className={`text-center text-[11px] mt-2 ${D.textMuted}`}>
