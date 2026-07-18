@@ -81,6 +81,20 @@ const horaLocal = () => {
   return String(n.getHours()).padStart(2,'0') + ':' + String(n.getMinutes()).padStart(2,'0');
 };
 
+// Hora actual "HH:mm:ss" en el huso horario del país configurado (APP_TZ)
+const horaConSegundos = () => {
+  const n = nowLocal();
+  return String(n.getHours()).padStart(2,'0') + ':' + String(n.getMinutes()).padStart(2,'0') + ':' + String(n.getSeconds()).padStart(2,'0');
+};
+
+// Combina una fecha "YYYY-MM-DD" elegida por el usuario con la hora actual,
+// respetando siempre la fecha que el usuario escogió (nunca la reemplaza).
+const combinarFechaConHoraActual = (fechaStr) => {
+  if (!fechaStr) return fechaStr;
+  const datePart = extraerFecha(fechaStr);
+  return `${datePart}T${horaConSegundos()}`;
+};
+
 const toISODate = (d) => {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -400,8 +414,9 @@ export default function App() {
       const nuevas = [];
       for (let i = 0; i < veces; i++) {
         const f = new Date(fechaBase); f.setMonth(f.getMonth() + i);
-        // Solo el primer registro (hoy) lleva hora; los futuros solo fecha
-        const fechaStr = i === 0 && tx.tipoRegistro === 'real' ? toISOFechaHora() : toISODate(f);
+        // La fecha elegida por el usuario SIEMPRE se respeta.
+        // Para 'real' se le agrega la hora actual (según el país configurado); 'proyectado' solo lleva fecha.
+        const fechaStr = tx.tipoRegistro === 'real' ? `${toISODate(f)}T${horaConSegundos()}` : toISODate(f);
         nuevas.push({ tipo: tx.tipo, tipoRegistro: tx.tipoRegistro, categoria: tx.categoria,
           subcategoria: tx.subcategoria || '', detalle: tx.detalle || '', persona: tx.persona || config.persona,
           id: i === 0 ? baseId : `${baseId}_${i}`, fecha: fechaStr,
@@ -1466,9 +1481,19 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
     if (editando && tx.grupoId && aplicarFuturos && fechaCambio) {
       cascada = { fromDate: fechaOriginal, diffDays: diffEnDias(fechaOriginal, fecha) };
     }
+    // La fecha elegida por el usuario SIEMPRE se respeta.
+    // - Registro nuevo 'real': se le agrega la hora actual.
+    // - Edición 'real' donde SÍ cambió el día: nueva fecha + hora actual.
+    // - Edición 'real' donde NO cambió el día (ej. solo cambió el monto): se conserva
+    //   la hora original tal cual, para no perder ese dato al tocar otro campo.
+    let fechaFinal = fecha;
+    if (tipoRegistro === 'real') {
+      if (!editando || fechaCambio) fechaFinal = combinarFechaConHoraActual(fecha);
+      else fechaFinal = (tx.fecha && tx.fecha.length > 10) ? tx.fecha : combinarFechaConHoraActual(fecha);
+    }
     onGuardar({ ...(tx?.id ? { id: tx.id, grupoId: tx.grupoId } : {}),
       tipo, tipoRegistro, categoria, subcategoria, detalle,
-      monto: parseFloat(monto), fecha, persona: config.persona, veces: editando ? 1 : veces }, cascada);
+      monto: parseFloat(monto), fecha: fechaFinal, persona: config.persona, veces: editando ? 1 : veces }, cascada);
   };
 
   return (
