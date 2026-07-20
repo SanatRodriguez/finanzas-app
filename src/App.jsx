@@ -1224,7 +1224,6 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
   const [filtro, setFiltro] = useState('mes');
   const [selectedCat, setSelectedCat] = useState(null);
   const [expandedCat, setExpandedCat] = useState(null);
-  const [stickyChart, setStickyChart] = useState(true);
   const [showFiltros, setShowFiltros] = useState(false);
 
   const accentColor = ACENTOS[config.acento || 'amber'].dot;
@@ -1251,22 +1250,9 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
     return rangos;
   }, [transacciones, config, filtro]);
 
-  // Chart data filtrado por categoría
-  const chartData = useMemo(() => {
-    if (!selectedCat) return meses;
-    return meses.map(m => {
-      const catTxs = m.txs.filter(t => t.tipo === 'gasto' && t.categoria === selectedCat);
-      return { ...m,
-        gp: catTxs.filter(t => t.tipoRegistro === 'proyectado').reduce((s,t) => s + Number(t.monto), 0),
-        gr: catTxs.filter(t => t.tipoRegistro === 'real').reduce((s,t) => s + Number(t.monto), 0),
-      };
-    });
-  }, [meses, selectedCat]);
-
-  const maxGasto = Math.max(...chartData.map(m => Math.max(m.gp, m.gr)), 1);
   const allTxsPeriod = useMemo(() => meses.flatMap(m => m.txs), [meses]);
 
-  // Categorías del período
+  // Categorías del período (para la lista "Detalle" según el filtro elegido)
   const analisisCat = useMemo(() => {
     const map = {};
     allTxsPeriod.filter(t => t.tipo === 'gasto').forEach(t => {
@@ -1292,40 +1278,80 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
     return [...active, ...inactive];
   }, [allTxsPeriod, catGasto]);
 
-  // Donut data
-  const totalReal = analisisCat.reduce((s, c) => s + c.real, 0);
-  const donutData = useMemo(() => {
-    if (totalReal === 0) return [];
-    return analisisCat.filter(c => c.real > 0).map(c => ({ ...c, pct: (c.real / totalReal) * 100 })).sort((a, b) => b.pct - a.pct);
-  }, [analisisCat, totalReal]);
-
   const barColor = (ejec) => ejec === null ? 'bg-stone-400' : ejec <= 80 ? 'bg-emerald-500' : ejec <= 100 ? 'bg-amber-500' : 'bg-red-500';
   const badgeColor = (ejec) => ejec === null ? 'bg-stone-100 text-stone-500' : ejec <= 80 ? 'bg-emerald-50 text-emerald-700' : ejec <= 100 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
 
-  // SVG Donut
-  const DonutChart = ({ data, size = 160 }) => {
-    const cx = size / 2, cy = size / 2, r = size / 2 - 16;
-    const circ = 2 * Math.PI * r;
-    let offset = 0;
-    return (
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="mx-auto block">
-        {data.map(d => {
-          const len = (d.pct / 100) * circ;
-          const el = <circle key={d.id} cx={cx} cy={cy} r={r} fill="none" stroke={d.color || '#8D99AE'} strokeWidth={22} strokeDasharray={`${len} ${circ - len}`} strokeDashoffset={-offset} transform={`rotate(-90 ${cx} ${cy})`} className="cursor-pointer" onClick={() => setSelectedCat(selectedCat === d.id ? null : d.id)} />;
-          offset += len;
-          return el;
-        })}
-      </svg>
-    );
-  };
-
-  const selectedCatData = selectedCat ? analisisCat.find(c => c.id === selectedCat) : null;
   const periodoLabel = filtro === 'mes' ? (meses[0]?.fullLabel || 'Mes actual') : filtro === '3m' ? '3 meses' : filtro === '6m' ? '6 meses' : 'Año';
-  const showMultiMonth = filtro !== 'mes' || selectedCat;
+
+  // ===== RESUMEN DEL MES ACTUAL (independiente del filtro de arriba) =====
+  const resumenMes = useMemo(() => {
+    const rango = getRangoMesFinanciero(nowLocal(), config.diaInicioMes, config.ajustarFinDeSemana);
+    const txsMes = transacciones.filter(t => {
+      if (!t.fecha || t.tipo !== 'gasto') return false;
+      const f = parseFechaLima(extraerFecha(t.fecha));
+      return f >= rango.inicio && f <= rango.fin;
+    });
+    const map = {};
+    txsMes.forEach(t => {
+      if (!map[t.categoria]) map[t.categoria] = { proy: 0, real: 0 };
+      if (t.tipoRegistro === 'proyectado') map[t.categoria].proy += Number(t.monto);
+      else map[t.categoria].real += Number(t.monto);
+    });
+    const cats = Object.entries(map).map(([catId, v]) => {
+      const cat = catGasto.find(c => c.id === catId) || { emoji: '📦', nombre: catId };
+      return { id: catId, emoji: cat.emoji, nombre: cat.nombre, ...v };
+    }).filter(c => c.real > 0 || c.proy > 0).sort((a, b) => b.real - a.real);
+
+    const totalProy = cats.reduce((s, c) => s + c.proy, 0);
+    const totalReal = cats.reduce((s, c) => s + c.real, 0);
+    const pendiente = totalProy - totalReal; // presupuesto - gastado (puede ser negativo)
+    const porPagar = cats.reduce((s, c) => s + Math.max(c.proy - c.real, 0), 0); // compromisos aún no cubiertos, sin compensar entre categorías
+
+    return { fullLabel: NOMBRES_MES_LARGO[rango.inicio.getMonth()], cats, totalProy, totalReal, pendiente, porPagar };
+  }, [transacciones, catGasto, config]);
+
+  const compartirResumen = () => {
+    let msg = `📊 Resumen — ${resumenMes.fullLabel}\n\n`;
+    msg += `Presupuesto utilizado: ${formatMonto(resumenMes.totalReal, config.moneda)}\n`;
+    msg += `Dinero pendiente: ${formatMonto(resumenMes.pendiente, config.moneda)}\n`;
+    msg += `Dinero por pagar: ${formatMonto(resumenMes.porPagar, config.moneda)}\n\n`;
+    msg += `Detalle:\n`;
+    resumenMes.cats.forEach(c => {
+      msg += `${c.emoji} ${c.nombre}: ${formatMonto(c.real, config.moneda)}${c.proy > 0 ? ` / ${formatMonto(c.proy, config.moneda)}` : ''}\n`;
+    });
+    if (navigator.share) navigator.share({ text: msg }).catch(() => {});
+    else window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  };
 
   return (
     <div className="animate-fade-in">
       <h1 className={`font-serif text-2xl font-semibold mb-3 ${D.text}`}>Análisis</h1>
+
+      {/* ===== RESUMEN DEL MES + COMPARTIR ===== */}
+      <div className={`rounded-2xl border p-4 mb-4 ${D.bgCard} ${D.border}`}>
+        <div className="flex items-center justify-between mb-3">
+          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Resumen — {resumenMes.fullLabel}</p>
+          <button onClick={compartirResumen}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full bg-emerald-600 text-white transition active:scale-95">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 004.74 1.21h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.13-2.9-7C17.19 3.03 14.7 2 12.04 2zm0 18.15h-.01a8.2 8.2 0 01-4.18-1.15l-.3-.18-3.11.82.83-3.03-.2-.31a8.2 8.2 0 01-1.26-4.39c0-4.54 3.7-8.24 8.24-8.24 2.2 0 4.27.86 5.82 2.42a8.18 8.18 0 012.42 5.83c0 4.54-3.7 8.23-8.25 8.23z"/></svg>
+            Compartir
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <p className={`text-[9px] uppercase tracking-wide ${D.textMuted}`}>Utilizado</p>
+            <p className={`font-serif text-base font-semibold ${D.text}`}>{formatMonto(resumenMes.totalReal, config.moneda)}</p>
+          </div>
+          <div>
+            <p className={`text-[9px] uppercase tracking-wide ${D.textMuted}`}>Pendiente</p>
+            <p className={`font-serif text-base font-semibold ${resumenMes.pendiente < 0 ? 'text-red-500' : D.text}`}>{formatMonto(resumenMes.pendiente, config.moneda)}</p>
+          </div>
+          <div>
+            <p className={`text-[9px] uppercase tracking-wide ${D.textMuted}`}>Por pagar</p>
+            <p className={`font-serif text-base font-semibold ${D.text}`}>{formatMonto(resumenMes.porPagar, config.moneda)}</p>
+          </div>
+        </div>
+      </div>
 
       {/* Filtro: Mes actual por defecto + desplegable para otros */}
       <div className="flex items-center gap-2 mb-4">
@@ -1350,71 +1376,6 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
           )}
         </div>
       </div>
-
-      {/* Gráfico sticky — barras superpuestas (presupuesto atrás, real delante) */}
-      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border} ${stickyChart ? 'sticky z-10 shadow-md' : ''}`}
-        style={stickyChart ? { top: 'env(safe-area-inset-top, 0px)' } : undefined}>
-        <div className="flex items-center justify-between mb-2">
-          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>
-            {selectedCatData ? `${selectedCatData.emoji} ${selectedCatData.nombre}` : 'Gastos'}: Presup. vs Real
-          </p>
-          <div className="flex items-center gap-1">
-            {selectedCat && <button onClick={() => setSelectedCat(null)} className={`text-[10px] px-2 py-1 rounded-full ${D.bgMuted} ${D.textMuted}`}>✕</button>}
-            <button onClick={() => setStickyChart(s => !s)} className={`p-1 rounded-full transition ${stickyChart ? 'bg-amber-100 text-amber-700' : D.bgMuted + ' ' + D.textMuted}`}>
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill={stickyChart ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
-            </button>
-          </div>
-        </div>
-        <div className="flex items-end gap-1" style={{ height: showMultiMonth ? 150 : 120 }}>
-          {chartData.map(m => {
-            const pctProy = m.gp / maxGasto;
-            const pctReal = m.gr / maxGasto;
-            const barH = showMultiMonth ? 120 : 90;
-            const hProy = pctProy * barH;
-            const hReal = pctReal * barH;
-            const ejec = m.gp > 0 ? ((m.gr / m.gp) * 100).toFixed(0) + '%' : '';
-            return (
-              <div key={m.key} className="flex-1 flex flex-col items-center gap-0.5">
-                {m.gr > 0 && <span className={`text-[7px] font-bold ${D.textMuted}`}>{m.gr >= 1000 ? `${(m.gr/1000).toFixed(1)}k` : m.gr.toFixed(0)}</span>}
-                {ejec && m.gr > 0 && <span className={`text-[7px] italic ${m.gr/m.gp <= 0.8 ? 'text-emerald-600' : m.gr/m.gp <= 1 ? 'text-amber-600' : 'text-red-600'}`}>{ejec}</span>}
-                <div className="w-full flex justify-center" style={{ height: barH }}>
-                  <div className="relative flex items-end" style={{ width: '70%' }}>
-                    {/* Presupuesto detrás */}
-                    <div className={`absolute bottom-0 w-full rounded-t ${D.bgMuted}`} style={{ height: Math.max(hProy, m.gp > 0 ? 4 : 0) }} />
-                    {/* Real delante */}
-                    <div className="absolute bottom-0 w-full rounded-t" style={{ height: Math.max(hReal, m.gr > 0 ? 4 : 0), backgroundColor: selectedCatData?.color || accentColor, opacity: 0.85 }} />
-                  </div>
-                </div>
-                <span className={`text-[9px] ${D.textMuted}`}>{m.label}</span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex items-center gap-4 mt-2">
-          <div className="flex items-center gap-1.5"><div className={`w-3 h-3 rounded-sm ${D.bgMuted}`} /><span className={`text-[10px] ${D.textMuted}`}>Presupuesto</span></div>
-          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: selectedCatData?.color || accentColor }} /><span className={`text-[10px] ${D.textMuted}`}>Real</span></div>
-        </div>
-      </div>
-
-      {/* Donut — distribución con leyenda visual como imagen de referencia */}
-      {donutData.length > 0 && !selectedCat && (
-        <div className={`rounded-2xl border p-4 mt-4 ${D.bgCard} ${D.border}`}>
-          <p className={`text-[10px] uppercase tracking-widest mb-3 ${D.textMuted}`}>Distribución del gasto — {periodoLabel}</p>
-          <div className="flex items-center gap-4">
-            <DonutChart data={donutData} size={140} />
-            <div className="flex-1 space-y-1">
-              {donutData.slice(0, 8).map(d => (
-                <button key={d.id} onClick={() => setSelectedCat(selectedCat === d.id ? null : d.id)}
-                  className={`w-full flex items-center gap-2 py-1 px-1.5 rounded-lg text-left transition active:scale-[0.97] ${selectedCat === d.id ? D.bgMuted : ''}`}>
-                  <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: d.color }} />
-                  <span className={`text-[10px] ${D.textSub} truncate flex-1`}>{d.nombre}</span>
-                  <span className={`text-[10px] font-bold ${D.text}`}>{d.pct.toFixed(0)}%</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Detalle por categoría */}
       <div className="mt-4">
