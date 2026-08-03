@@ -1446,10 +1446,32 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
   const [veces, setVeces] = useState(1);
   const [aplicarFuturos, setAplicarFuturos] = useState(false);
   const [showAllCats, setShowAllCats] = useState(false);
+  const [modoMonto, setModoMonto] = useState('fijo'); // 'fijo' | 'pct'
+  const [pctIngreso, setPctIngreso] = useState('');
+  const [ingresoOverride, setIngresoOverride] = useState(null); // null = usar el detectado automáticamente
   const cats = tipo === 'gasto' ? catGasto : catIngreso;
   const editando = !!tx?.id;
   const fechaOriginal = tx?.fecha ? extraerFecha(tx.fecha) : null;
   const fechaCambio = editando && fechaOriginal && fecha !== fechaOriginal;
+
+  // ===== Calculadora: % del ingreso proyectado del mes =====
+  const mostrarCalculadora = tipo === 'gasto' && tipoRegistro === 'proyectado';
+  const ingresoDetectado = useMemo(() => {
+    if (!fecha) return 0;
+    const [y, m, d] = extraerFecha(fecha).split('-').map(Number);
+    const ref = new Date(y, m - 1, d);
+    const rango = getRangoMesFinanciero(ref, config.diaInicioMes, config.ajustarFinDeSemana);
+    return (transacciones || [])
+      .filter(t => t.tipo === 'ingreso' && t.tipoRegistro === 'proyectado' && t.fecha)
+      .filter(t => { const f = parseFechaLima(extraerFecha(t.fecha)); return f >= rango.inicio && f <= rango.fin; })
+      .reduce((s, t) => s + Number(t.monto), 0);
+  }, [fecha, transacciones, config]);
+  const ingresoBase = ingresoOverride !== null ? ingresoOverride : ingresoDetectado;
+  const montoCalculado = (parseFloat(String(ingresoBase).replace(',', '.')) || 0) * (parseFloat(pctIngreso.replace(',', '.')) || 0) / 100;
+
+  useEffect(() => {
+    if (modoMonto === 'pct') setMonto(montoCalculado ? montoCalculado.toFixed(2) : '');
+  }, [modoMonto, montoCalculado]);
 
   const submit = () => {
     if (!categoria || !monto) return;
@@ -1506,6 +1528,49 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
               ))}
             </div>
           </div>
+
+          {/* Calculadora: % del ingreso proyectado (solo gasto + presupuesto) */}
+          {mostrarCalculadora && (
+            <div className={`rounded-xl border p-3 ${D.bgCard} ${D.border}`}>
+              <div className="flex gap-1.5 mb-2">
+                <button onClick={() => setModoMonto('fijo')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition ${modoMonto === 'fijo' ? 'bg-stone-900 text-white border-stone-900' : D.bgMuted + ' ' + D.border + ' ' + D.textSub}`}>
+                  Monto fijo
+                </button>
+                <button onClick={() => setModoMonto('pct')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition ${modoMonto === 'pct' ? 'bg-stone-900 text-white border-stone-900' : D.bgMuted + ' ' + D.border + ' ' + D.textSub}`}>
+                  % del ingreso
+                </button>
+              </div>
+              {modoMonto === 'pct' && (
+                <div className="space-y-2">
+                  <div>
+                    <label className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Ingreso proyectado del mes</label>
+                    <input type="number" inputMode="decimal"
+                      value={ingresoOverride !== null ? ingresoOverride : ingresoDetectado}
+                      onChange={e => setIngresoOverride(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg text-sm border outline-none mt-0.5 ${D.bgInput} ${D.border} ${D.text}`} />
+                    {ingresoOverride === null && ingresoDetectado > 0 && (
+                      <p className={`text-[10px] mt-0.5 ${D.textMuted}`}>Detectado automáticamente de tus ingresos proyectados de ese mes.</p>
+                    )}
+                    {ingresoDetectado === 0 && ingresoOverride === null && (
+                      <p className={`text-[10px] mt-0.5 text-amber-600`}>No hay ingreso proyectado registrado ese mes — escríbelo tú.</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Porcentaje</label>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <input type="number" inputMode="decimal" value={pctIngreso} onChange={e => setPctIngreso(e.target.value)} placeholder="20"
+                        className={`w-20 px-2.5 py-1.5 rounded-lg text-sm border outline-none ${D.bgInput} ${D.border} ${D.text}`} />
+                      <span className={`text-sm ${D.textMuted}`}>%</span>
+                      <span className={`text-sm font-semibold ml-auto ${D.text}`}>= {formatMonto(montoCalculado, config.moneda)}</span>
+                    </div>
+                  </div>
+                  <p className={`text-[10px] ${D.textMuted}`}>Este monto se guarda como fijo — si tu ingreso cambia luego, vuelve a esta calculadora para actualizarlo.</p>
+                </div>
+              )}
+            </div>
+          )}
           {/* Categorías */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
