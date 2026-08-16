@@ -175,6 +175,19 @@ const formatMonto = (v, moneda = 'S/.') => {
   return `${moneda} ${n.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+// Mezcla un color de acento con un color base (ratioAcento entre 0 y 1) para que
+// el fondo de la app se sienta teñido del color elegido, no solo los botones.
+const mixHex = (hexAcento, hexBase, ratioAcento) => {
+  const toRGB = (hex) => {
+    const h = hex.replace('#', '');
+    return [0, 2, 4].map(i => parseInt(h.substring(i, i + 2), 16));
+  };
+  const [ar, ag, ab] = toRGB(hexAcento);
+  const [br, bg, bb] = toRGB(hexBase);
+  const mix = (a, b) => Math.round(a * ratioAcento + b * (1 - ratioAcento));
+  return `#${[mix(ar, br), mix(ag, bg), mix(ab, bb)].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+};
+
 const ajustarSiFinDeSemana = (fecha) => {
   const d = new Date(fecha);
   const dow = d.getDay();
@@ -305,7 +318,9 @@ export default function App() {
   const acento = ACENTOS[config.acento || 'amber'];
 
   const D = {
-    bg: isDark ? 'bg-stone-950' : 'bg-stone-50',
+    // Fondo de la app teñido con el color elegido (no solo los botones) —
+    // mezcla ligera para que se sienta "de color" sin perder legibilidad.
+    bg: isDark ? mixHex(acento.dot, '#0c0a09', 0.14) : mixHex(acento.dot, '#fafaf9', 0.08),
     bgCard: isDark ? 'bg-stone-900' : 'bg-white',
     bgMuted: isDark ? 'bg-stone-800' : 'bg-stone-100',
     bgInput: isDark ? 'bg-stone-800' : 'bg-white',
@@ -551,7 +566,7 @@ export default function App() {
   if (loading) return <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-stone-950' : 'bg-stone-50'}`}><div className={`font-serif text-xl italic ${isDark ? 'text-stone-300' : 'text-stone-600'}`}>Cargando...</div></div>;
 
   return (
-    <div className={`min-h-screen ${D.bg} pb-20 transition-colors duration-300`} style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+    <div className="min-h-screen pb-20 transition-colors duration-300" style={{ backgroundColor: D.bg, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800;9..144,900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
         .font-serif { font-family: 'Fraunces', Georgia, serif; }
@@ -862,7 +877,7 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
         className={`w-full px-3 py-2 rounded-xl text-sm border outline-none mb-2 ${D.bgInput} ${D.border} ${D.text}`} />
 
       {/* GUARDAR — fijo sobre el nav inferior, siempre visible */}
-      <div className={`sticky z-20 pt-1 pb-1 ${D.bg}`} style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))' }}>
+      <div className="sticky z-20 pt-1 pb-1" style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))', backgroundColor: D.bg }}>
         <button onClick={guardar}
           disabled={!monto || parseFloat(monto.replace(',','.')) <= 0 || !categoria}
           style={{ backgroundColor: D.accentDot }}
@@ -1281,10 +1296,13 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
 function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) {
   const [filtro, setFiltro] = useState('mes');
   const [tipoRegFiltro, setTipoRegFiltro] = useState('todos'); // 'todos' | 'real' | 'proyectado'
-  const [catFiltro, setCatFiltro] = useState('todas');
+  const [catFiltros, setCatFiltros] = useState([]); // [] = todas las categorías
   const [selectedCat, setSelectedCat] = useState(null);
   const [expandedCat, setExpandedCat] = useState(null);
   const [showFiltros, setShowFiltros] = useState(false);
+  const [showCatFiltro, setShowCatFiltro] = useState(false);
+
+  const toggleCatFiltro = (id) => setCatFiltros(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const accentColor = ACENTOS[config.acento || 'amber'].dot;
 
@@ -1346,7 +1364,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) 
     return [...active, ...inactive];
   }, [allTxsPeriod, catGasto]);
 
-  const categoriasMostradas = catFiltro === 'todas' ? analisisCat : analisisCat.filter(c => c.id === catFiltro);
+  const categoriasMostradas = catFiltros.length === 0 ? analisisCat : analisisCat.filter(c => catFiltros.includes(c.id));
 
   const barColor = (ejec) => ejec === null ? 'bg-stone-400' : ejec <= 80 ? 'bg-emerald-500' : ejec <= 100 ? 'bg-amber-500' : 'bg-red-500';
   const badgeColor = (ejec) => ejec === null ? 'bg-stone-100 text-stone-500' : ejec <= 80 ? 'bg-emerald-50 text-emerald-700' : ejec <= 100 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
@@ -1423,24 +1441,19 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) 
         </div>
       </div>
 
-      {/* Filtro: Mes actual por defecto + desplegable para otros */}
+      {/* Filtro: período (un solo desplegable con todas las opciones) */}
       <div className="flex items-center gap-2 mb-2.5">
-        <button onClick={() => { setFiltro('mes'); setSelectedCat(null); setShowFiltros(false); }}
-          style={filtro === 'mes' ? { backgroundColor: D.accentDot } : undefined}
-          className={`py-2 px-4 rounded-xl text-xs font-medium border transition ${filtro === 'mes' ? 'text-white border-transparent' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
-          {meses.length === 1 ? meses[0]?.fullLabel || 'Mes actual' : 'Mes actual'}
-        </button>
         <div className="relative">
-          <button onClick={() => setShowFiltros(!showFiltros)}
-            style={filtro !== 'mes' ? { backgroundColor: D.accentDot } : undefined}
-            className={`py-2 px-3 rounded-xl text-xs font-medium border transition flex items-center gap-1 ${filtro !== 'mes' ? 'text-white border-transparent' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
-            {filtro === '3m' ? '3 meses' : filtro === '6m' ? '6 meses' : filtro === 'year' ? 'Año' : 'Más'} <ChevronRight className={`w-3 h-3 transition ${showFiltros ? 'rotate-90' : ''}`} />
+          <button onClick={() => setShowFiltros(!showFiltros)} style={{ backgroundColor: D.accentDot }}
+            className="py-2 px-4 rounded-xl text-xs font-medium text-white transition flex items-center gap-1.5">
+            {filtro === 'mes' ? (meses[0]?.fullLabel || 'Mes actual') : filtro === '3m' ? '3 meses' : filtro === '6m' ? '6 meses' : 'Año'}
+            <ChevronDown className={`w-3.5 h-3.5 transition ${showFiltros ? 'rotate-180' : ''}`} />
           </button>
           {showFiltros && (
             <div className={`absolute top-full left-0 mt-1 rounded-xl shadow-lg border z-20 overflow-hidden ${D.bgCard} ${D.border}`}>
-              {[{id:'3m',l:'3 meses'},{id:'6m',l:'6 meses'},{id:'year',l:'Año'}].map(f => (
+              {[{id:'mes',l:meses[0]?.fullLabel || 'Mes actual'},{id:'3m',l:'3 meses'},{id:'6m',l:'6 meses'},{id:'year',l:'Año'}].map(f => (
                 <button key={f.id} onClick={() => { setFiltro(f.id); setSelectedCat(null); setShowFiltros(false); }}
-                  className={`block w-full text-left px-4 py-2.5 text-xs font-medium transition ${filtro === f.id ? D.accentText + ' ' + D.bgMuted : D.text} hover:${D.bgMuted}`}>
+                  className={`block w-full text-left px-4 py-2.5 text-xs font-medium transition whitespace-nowrap ${filtro === f.id ? D.accentText + ' ' + D.bgMuted : D.text}`}>
                   {f.l}
                 </button>
               ))}
@@ -1449,7 +1462,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) 
         </div>
       </div>
 
-      {/* Filtro: tipo de registro */}
+      {/* Filtro: tipo de registro (una sola opción a la vez) */}
       <div className="flex gap-1.5 mb-2.5">
         {['todos','real','proyectado'].map(t => (
           <button key={t} onClick={() => setTipoRegFiltro(t)} style={tipoRegFiltro === t ? { backgroundColor: D.accentDot } : undefined}
@@ -1459,18 +1472,32 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) 
         ))}
       </div>
 
-      {/* Filtro: categoría */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 mb-4 -mx-1 px-1">
-        <button onClick={() => setCatFiltro('todas')} style={catFiltro === 'todas' ? { backgroundColor: D.accentDot } : undefined}
-          className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition ${catFiltro === 'todas' ? 'text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
-          Todas
+      {/* Filtro: categoría (varias a la vez, en desplegable para no saturar la pantalla) */}
+      <div className="relative mb-4">
+        <button onClick={() => setShowCatFiltro(!showCatFiltro)}
+          style={catFiltros.length > 0 ? { backgroundColor: D.accentDot } : undefined}
+          className={`py-2 px-4 rounded-xl text-xs font-medium transition flex items-center gap-1.5 border ${catFiltros.length > 0 ? 'text-white border-transparent' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+          {catFiltros.length === 0 ? 'Todas las categorías' : `${catFiltros.length} categoría${catFiltros.length > 1 ? 's' : ''}`}
+          <ChevronDown className={`w-3.5 h-3.5 transition ${showCatFiltro ? 'rotate-180' : ''}`} />
         </button>
-        {catGasto.map(c => (
-          <button key={c.id} onClick={() => setCatFiltro(c.id)} style={catFiltro === c.id ? { backgroundColor: c.color } : undefined}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition ${catFiltro === c.id ? 'text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
-            {c.emoji} {c.nombre}
-          </button>
-        ))}
+        {showCatFiltro && (
+          <div className={`absolute top-full left-0 mt-1 w-64 max-h-72 overflow-y-auto rounded-xl shadow-lg border z-20 ${D.bgCard} ${D.border}`}>
+            <button onClick={() => setCatFiltros([])}
+              className={`block w-full text-left px-4 py-2 text-xs font-semibold border-b ${D.border} ${catFiltros.length === 0 ? D.accentText : D.textMuted}`}>
+              Todas
+            </button>
+            {catGasto.map(c => (
+              <label key={c.id} className={`flex items-center gap-2 px-4 py-2 text-xs cursor-pointer ${D.text}`}>
+                <input type="checkbox" checked={catFiltros.includes(c.id)} onChange={() => toggleCatFiltro(c.id)} className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>{c.emoji} {c.nombre}</span>
+              </label>
+            ))}
+            <div className={`p-2 border-t ${D.border}`}>
+              <button onClick={() => setShowCatFiltro(false)} style={{ backgroundColor: D.accentDot }}
+                className="w-full py-1.5 rounded-lg text-xs font-medium text-white">Listo</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Detalle por categoría */}
@@ -1686,7 +1713,7 @@ function FormularioMovimientoAhorro({ cuenta, mov, config, D, onGuardar, onElimi
 
   return (
     <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
-      <div className={`w-full max-w-md rounded-t-3xl flex flex-col animate-slide-up shadow-2xl ${D.bg}`}>
+      <div className="w-full max-w-md rounded-t-3xl flex flex-col animate-slide-up shadow-2xl" style={{ backgroundColor: D.bg }}>
         <div className={`px-5 pt-4 pb-3 border-b ${D.bgMuted} ${D.border} flex items-center justify-between rounded-t-3xl`}>
           <h2 className={`font-serif text-lg font-semibold ${D.text}`}>{editando ? 'Editar movimiento' : `${cuenta.emoji} ${cuenta.nombre}`}</h2>
           <button onClick={onCerrar} className={`p-1.5 rounded-full ${D.bgCard}`}><X className={`w-5 h-5 ${D.text}`} /></button>
@@ -1743,7 +1770,7 @@ function FormularioCuentaAhorro({ D, onGuardar, onCerrar }) {
 
   return (
     <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
-      <div className={`w-full max-w-md rounded-t-3xl flex flex-col animate-slide-up shadow-2xl ${D.bg}`}>
+      <div className="w-full max-w-md rounded-t-3xl flex flex-col animate-slide-up shadow-2xl" style={{ backgroundColor: D.bg }}>
         <div className={`px-5 pt-4 pb-3 border-b ${D.bgMuted} ${D.border} flex items-center justify-between rounded-t-3xl`}>
           <h2 className={`font-serif text-lg font-semibold ${D.text}`}>Nueva cuenta o meta</h2>
           <button onClick={onCerrar} className={`p-1.5 rounded-full ${D.bgCard}`}><X className={`w-5 h-5 ${D.text}`} /></button>
@@ -1833,7 +1860,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
 
   return (
     <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
-      <div className={`w-full max-w-md rounded-t-3xl max-h-[92vh] flex flex-col animate-slide-up shadow-2xl ${D.bg}`}>
+      <div className="w-full max-w-md rounded-t-3xl max-h-[92vh] flex flex-col animate-slide-up shadow-2xl" style={{ backgroundColor: D.bg }}>
         <div className={`px-5 pt-4 pb-3 border-b ${D.bgMuted} ${D.border} rounded-t-3xl`}>
           <div className="flex items-center justify-between mb-2">
             <h2 className={`font-serif text-lg font-semibold ${D.text}`}>{editando ? 'Editar' : 'Registro completo'}</h2>
@@ -2129,7 +2156,7 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
       {/* Modal categorías */}
       {showCats && (
         <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
-          <div className={`w-full max-w-md rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up shadow-2xl ${D.bg}`}>
+          <div className="w-full max-w-md rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up shadow-2xl" style={{ backgroundColor: D.bg }}>
             <div className={`px-5 pt-4 pb-3 border-b ${D.bgMuted} ${D.border} flex items-center justify-between rounded-t-3xl`}>
               <h2 className={`font-serif text-lg font-semibold ${D.text}`}>{showCats === 'gasto' ? '💸 Gastos' : '💰 Ingresos'}</h2>
               <button onClick={() => setShowCats(null)} className={`p-1.5 rounded-full ${D.bgCard}`}><X className={`w-5 h-5 ${D.text}`} /></button>
