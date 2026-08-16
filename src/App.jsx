@@ -33,6 +33,38 @@ const CATEGORIAS_SUGERIDAS_INGRESO = [
   { id: 'bonos', nombre: 'Bonos / Regalos', emoji: '🎁', color: '#FF006E', orden: 4 },
 ];
 
+// ============ AHORRO ============
+// Cuentas/metas de ahorro: se guardan como "categorías" con tipo 'cuenta_ahorro'
+// (mismo mecanismo que catGasto/catIngreso, reutilizando saveCat/listCats/deleteCat
+// del Apps Script — así no hace falta tocar el backend para nada de esto).
+const CUENTA_AHORRO_PRINCIPAL_ID = 'principal';
+// Los gastos reales con esta categoría (los que ya registras en Registro Rápido /
+// presupuesto) alimentan automáticamente el saldo de la cuenta "principal".
+const CATEGORIA_GASTO_AHORRO_ID = 'ahorro';
+const CUENTA_AHORRO_PRINCIPAL = {
+  id: CUENTA_AHORRO_PRINCIPAL_ID, tipo: 'cuenta_ahorro', nombre: 'Ahorro General',
+  emoji: '💰', color: '#FFD60A', orden: 0, activo: true,
+};
+const DEFAULT_CATEGORIAS_AHORRO = [];
+
+// Saldo de cada cuenta de ahorro = aportes automáticos (solo cuenta principal) +
+// aportes manuales − retiros. Los movimientos manuales viven en App_Data con
+// tipo:'ahorro' (categoria = id de la cuenta, subcategoria = 'aporte' | 'retiro'),
+// así nunca se mezclan con los totales de gasto/ingreso del presupuesto.
+function calcularSaldosAhorro(transacciones, cuentas) {
+  const map = {};
+  cuentas.forEach(c => { map[c.id] = 0; });
+  transacciones.forEach(t => {
+    if (t.tipo === 'gasto' && t.tipoRegistro === 'real' && t.categoria === CATEGORIA_GASTO_AHORRO_ID) {
+      map[CUENTA_AHORRO_PRINCIPAL_ID] = (map[CUENTA_AHORRO_PRINCIPAL_ID] || 0) + Number(t.monto);
+    }
+    if (t.tipo === 'ahorro') {
+      map[t.categoria] = (map[t.categoria] || 0) + (t.subcategoria === 'retiro' ? -1 : 1) * Number(t.monto);
+    }
+  });
+  return map;
+}
+
 const DEFAULT_CONFIG = {
   diaInicioMes: 23,
   ajustarFinDeSemana: true,
@@ -191,7 +223,7 @@ const diffEnDias = (fechaA, fechaB) => {
 
 // ============ STORAGE LOCAL ============
 const KEYS = {
-  TX_CACHE: 'fin:tx', CONFIG: 'fin:cfg', CAT_G: 'fin:cg', CAT_I: 'fin:ci',
+  TX_CACHE: 'fin:tx', CONFIG: 'fin:cfg', CAT_G: 'fin:cg', CAT_I: 'fin:ci', CAT_A: 'fin:ca',
   SCRIPT_URL: 'fin:url', PENDING: 'fin:pending',
 };
 const loadL = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
@@ -254,6 +286,7 @@ export default function App() {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [catGasto, setCatGasto] = useState(DEFAULT_CATEGORIAS_GASTO);
   const [catIngreso, setCatIngreso] = useState(DEFAULT_CATEGORIAS_INGRESO);
+  const [catAhorro, setCatAhorro] = useState(DEFAULT_CATEGORIAS_AHORRO);
   const [loading, setLoading] = useState(true);
   const [fechaRef, setFechaRef] = useState(nowLocal());
   const [toast, setToast] = useState(null);
@@ -293,10 +326,11 @@ export default function App() {
     const cfg = loadL(KEYS.CONFIG, DEFAULT_CONFIG);
     const cg = loadL(KEYS.CAT_G, DEFAULT_CATEGORIAS_GASTO);
     const ci = loadL(KEYS.CAT_I, DEFAULT_CATEGORIAS_INGRESO);
+    const ca = loadL(KEYS.CAT_A, DEFAULT_CATEGORIAS_AHORRO);
     const url = loadL(KEYS.SCRIPT_URL, '');
     const cache = loadL(KEYS.TX_CACHE, []);
     APP_TZ = getTZ(cfg.pais || 'PE');
-    setConfig(cfg); setCatGasto(cg); setCatIngreso(ci); setScriptUrl(url); setTransacciones(cache);
+    setConfig(cfg); setCatGasto(cg); setCatIngreso(ci); setCatAhorro(ca); setScriptUrl(url); setTransacciones(cache);
     setLoading(false); // ← la UI ya es usable, no esperamos al servidor
 
     // 2. Sincronizar con el servidor EN SEGUNDO PLANO
@@ -323,8 +357,10 @@ export default function App() {
           if (remoteCats) {
             const g = remoteCats.filter(c => c.tipo === 'gasto').sort((a,b) => (a.orden||99)-(b.orden||99));
             const i = remoteCats.filter(c => c.tipo === 'ingreso').sort((a,b) => (a.orden||99)-(b.orden||99));
+            const a = remoteCats.filter(c => c.tipo === 'cuenta_ahorro').sort((x,y) => (x.orden||99)-(y.orden||99));
             setCatGasto(g); saveL(KEYS.CAT_G, g);
             setCatIngreso(i); saveL(KEYS.CAT_I, i);
+            setCatAhorro(a); saveL(KEYS.CAT_A, a);
           }
           try {
             const settings = await apiListSettings(url);
@@ -465,26 +501,42 @@ export default function App() {
   const guardarCat = async (cat, tipo) => {
     const c = { ...cat, tipo };
     if (tipo === 'gasto') { const n = catGasto.find(x => x.id === cat.id) ? catGasto.map(x => x.id === cat.id ? c : x) : [...catGasto, c]; setCatGasto(n); saveL(KEYS.CAT_G, n); }
-    else { const n = catIngreso.find(x => x.id === cat.id) ? catIngreso.map(x => x.id === cat.id ? c : x) : [...catIngreso, c]; setCatIngreso(n); saveL(KEYS.CAT_I, n); }
+    else if (tipo === 'ingreso') { const n = catIngreso.find(x => x.id === cat.id) ? catIngreso.map(x => x.id === cat.id ? c : x) : [...catIngreso, c]; setCatIngreso(n); saveL(KEYS.CAT_I, n); }
+    else { const n = catAhorro.find(x => x.id === cat.id) ? catAhorro.map(x => x.id === cat.id ? c : x) : [...catAhorro, c]; setCatAhorro(n); saveL(KEYS.CAT_A, n); }
     if (scriptUrl && online) { try { await apiSaveCat(scriptUrl, c); } catch {} }
     showToast('Categoría guardada ✓');
   };
 
   const eliminarCat = async (id, tipo) => {
     if (tipo === 'gasto') { const n = catGasto.filter(c => c.id !== id); setCatGasto(n); saveL(KEYS.CAT_G, n); }
-    else { const n = catIngreso.filter(c => c.id !== id); setCatIngreso(n); saveL(KEYS.CAT_I, n); }
+    else if (tipo === 'ingreso') { const n = catIngreso.filter(c => c.id !== id); setCatIngreso(n); saveL(KEYS.CAT_I, n); }
+    else { const n = catAhorro.filter(c => c.id !== id); setCatAhorro(n); saveL(KEYS.CAT_A, n); }
     if (scriptUrl && online) { try { await apiDeleteCat(scriptUrl, id); } catch {} }
   };
 
   const navegarMes = (d) => { const n = new Date(fechaRef); n.setMonth(n.getMonth() + d); setFechaRef(n); };
 
   // ======== DATOS COMPUTADOS ========
+  // Los movimientos de ahorro (tipo:'ahorro') viven en el mismo array de transacciones
+  // pero nunca deben mezclarse con gasto/ingreso del presupuesto (Dashboard, Registro,
+  // Análisis, CSV de totales). Se filtran acá una sola vez.
+  const transaccionesPresupuesto = useMemo(() => transacciones.filter(t => t.tipo !== 'ahorro'), [transacciones]);
   const mesActual = useMemo(() => getRangoMesFinanciero(fechaRef, config.diaInicioMes, config.ajustarFinDeSemana), [fechaRef, config]);
-  const txDelMes = useMemo(() => transacciones.filter(t => {
+  const txDelMes = useMemo(() => transaccionesPresupuesto.filter(t => {
     if (!t.fecha) return false;
     const f = parseFechaLima(extraerFecha(t.fecha));
     return f >= mesActual.inicio && f <= mesActual.fin;
-  }), [transacciones, mesActual]);
+  }), [transaccionesPresupuesto, mesActual]);
+
+  // Cuentas/metas de ahorro (siempre incluye "principal", aunque no se haya guardado
+  // explícitamente como categoría todavía) y sus saldos, calculados del histórico completo.
+  const cuentasAhorro = useMemo(() => {
+    const activas = catAhorro.filter(c => c.activo !== false);
+    const base = activas.some(c => c.id === CUENTA_AHORRO_PRINCIPAL_ID) ? activas : [CUENTA_AHORRO_PRINCIPAL, ...activas];
+    return [...base].sort((a, b) => (a.orden || 99) - (b.orden || 99));
+  }, [catAhorro]);
+  const saldosAhorro = useMemo(() => calcularSaldosAhorro(transacciones, cuentasAhorro), [transacciones, cuentasAhorro]);
+  const totalAhorro = useMemo(() => Object.values(saldosAhorro).reduce((s, v) => s + v, 0), [saldosAhorro]);
   const stats = useMemo(() => {
     const ip = txDelMes.filter(t => t.tipo === 'ingreso' && t.tipoRegistro === 'proyectado').reduce((s,t) => s + Number(t.monto), 0);
     const ir = txDelMes.filter(t => t.tipo === 'ingreso' && t.tipoRegistro === 'real').reduce((s,t) => s + Number(t.monto), 0);
@@ -533,10 +585,11 @@ export default function App() {
               config={config} D={D} mesActual={mesActual} onNavMes={navegarMes}
               onMarcarReal={marcarComoReal} onEditar={(tx) => { setEditTx(tx); setShowFormCompleto(true); }}
               onEliminar={eliminarTx} syncStatus={syncStatus} onSync={sincronizar} scriptUrl={scriptUrl}
-              online={online}
+              online={online} totalAhorro={totalAhorro}
               onVerIngresos={() => { setVista('registro'); setFiltroGlobal('ingreso'); }}
               onVerGastos={() => { setVista('registro'); setFiltroGlobal('real'); }}
-              onVerAnalisis={() => setVista('analisis')} />
+              onVerAnalisis={() => setVista('analisis')}
+              onVerAhorro={() => setVista('ahorro')} />
           ) : <OfflineMsg D={D} />
         )}
         {vista === 'registro' && (
@@ -551,7 +604,17 @@ export default function App() {
         )}
         {vista === 'analisis' && (
           online || transacciones.length > 0 ? (
-            <Analisis transacciones={transacciones} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D} />
+            <Analisis transacciones={transaccionesPresupuesto} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D} />
+          ) : <OfflineMsg D={D} />
+        )}
+        {vista === 'ahorro' && (
+          online || transacciones.length > 0 ? (
+            <Ahorro transacciones={transacciones} cuentasAhorro={cuentasAhorro} saldos={saldosAhorro} total={totalAhorro}
+              config={config} D={D}
+              onGuardar={guardarTx} onEliminar={eliminarTx}
+              onEditarGasto={(tx) => { setEditTx(tx); setShowFormCompleto(true); }}
+              onGuardarCuenta={(c) => guardarCat(c, 'cuenta_ahorro')}
+              onVolver={() => setVista('dashboard')} />
           ) : <OfflineMsg D={D} />
         )}
         {vista === 'config' && (
@@ -834,7 +897,7 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
 }
 
 // ============ DASHBOARD ============
-function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual, onNavMes, onMarcarReal, onEditar, onEliminar, syncStatus, onSync, scriptUrl, online, onVerIngresos, onVerGastos, onVerAnalisis }) {
+function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual, onNavMes, onMarcarReal, onEditar, onEliminar, syncStatus, onSync, scriptUrl, online, onVerIngresos, onVerGastos, onVerAnalisis, totalAhorro, onVerAhorro }) {
   const [hidden, setHidden] = useState(true);
   const M = (v, mon) => hidden ? `${mon} ••••` : formatMonto(v, mon);
 
@@ -920,6 +983,16 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
             <div className={`mt-1 text-[11px] ${D.textMuted}`}>de {hidden ? `${config.moneda} ••••` : formatMonto(c.p, config.moneda)}</div>
           </div>
         ))}
+      </div>
+
+      {/* Ahorro */}
+      <div onClick={onVerAhorro} className={`rounded-2xl border p-4 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0" style={{ backgroundColor: '#FFD60A22' }}>💰</div>
+        <div className="flex-1 min-w-0">
+          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Ahorro</p>
+          <p className={`font-serif text-lg font-semibold ${D.text}`}>{M(totalAhorro, config.moneda)}</p>
+        </div>
+        <ChevronRight className={`w-5 h-5 ${D.textMuted}`} />
       </div>
 
       {/* Ejecución */}
@@ -1433,6 +1506,225 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
   );
 }
 
+
+// ============ AHORRO ============
+function Ahorro({ transacciones, cuentasAhorro, saldos, total, config, D, onGuardar, onEliminar, onEditarGasto, onGuardarCuenta, onVolver }) {
+  const [cuentaSel, setCuentaSel] = useState(null);
+  const [showMovForm, setShowMovForm] = useState(false);
+  const [editMov, setEditMov] = useState(null);
+  const [showCuentaForm, setShowCuentaForm] = useState(false);
+
+  const cuenta = cuentaSel ? cuentasAhorro.find(c => c.id === cuentaSel) : null;
+
+  const movimientosDe = (cuentaId) => {
+    const manuales = transacciones.filter(t => t.tipo === 'ahorro' && t.categoria === cuentaId);
+    const autos = cuentaId === CUENTA_AHORRO_PRINCIPAL_ID
+      ? transacciones.filter(t => t.tipo === 'gasto' && t.tipoRegistro === 'real' && t.categoria === CATEGORIA_GASTO_AHORRO_ID).map(t => ({ ...t, _auto: true }))
+      : [];
+    return [...manuales, ...autos].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+  };
+
+  // ===== Vista detalle de una cuenta =====
+  if (cuenta) {
+    const movs = movimientosDe(cuenta.id);
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <button onClick={() => setCuentaSel(null)} className={`flex items-center gap-1 text-sm font-medium ${D.textMuted}`}>
+          <ChevronLeft className="w-4 h-4" /> Ahorro
+        </button>
+        <div className="relative overflow-hidden rounded-3xl p-5 text-white" style={{ background: `linear-gradient(135deg, ${cuenta.color}, ${cuenta.color}aa)` }}>
+          <div className="absolute inset-0 grain opacity-20" />
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-1"><span className="text-2xl">{cuenta.emoji}</span><span className="font-serif text-lg font-semibold">{cuenta.nombre}</span></div>
+            <div className="font-serif text-3xl font-semibold mt-2">{formatMonto(saldos[cuenta.id] || 0, config.moneda)}</div>
+            {cuenta.id === CUENTA_AHORRO_PRINCIPAL_ID && (
+              <p className="text-xs mt-1 text-white/80">Incluye tus aportes registrados como gasto "Ahorro"</p>
+            )}
+          </div>
+        </div>
+        <button onClick={() => { setEditMov(null); setShowMovForm(true); }}
+          className="w-full py-3 bg-stone-900 text-white font-semibold rounded-xl active:scale-[0.98] transition">
+          <Plus className="w-4 h-4 inline mr-1" /> Registrar movimiento
+        </button>
+        <div className="space-y-1.5">
+          {movs.length === 0 ? (
+            <div className={`rounded-2xl border border-dashed p-6 text-center ${D.bgCard} ${D.borderMuted}`}>
+              <p className={`text-sm ${D.textMuted}`}>Sin movimientos todavía</p>
+            </div>
+          ) : movs.map(m => {
+            const esRetiro = !m._auto && m.subcategoria === 'retiro';
+            return (
+              <div key={m.id} onClick={() => m._auto ? onEditarGasto(m) : (setEditMov(m), setShowMovForm(true))}
+                className={`rounded-xl border p-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center text-base font-bold flex-shrink-0"
+                  style={{ backgroundColor: (esRetiro ? '#EF233C' : cuenta.color) + '22', color: esRetiro ? '#EF233C' : cuenta.color }}>
+                  {esRetiro ? '↓' : '↑'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`font-medium text-sm truncate ${D.text}`}>{m.detalle || (esRetiro ? 'Retiro' : 'Aporte')}{m._auto ? ' · del presupuesto' : ''}</p>
+                  <p className={`text-[11px] ${D.textMuted}`}>{formatFechaCorta(parseFechaLima(m.fecha))}</p>
+                </div>
+                <div className={`font-serif font-semibold text-sm ${esRetiro ? 'text-red-500' : 'text-emerald-600'}`}>
+                  {esRetiro ? '−' : '+'}{formatMonto(m.monto, config.moneda).replace(config.moneda + ' ', '')}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {showMovForm && (
+          <FormularioMovimientoAhorro cuenta={cuenta} mov={editMov} config={config} D={D}
+            onGuardar={onGuardar} onEliminar={onEliminar}
+            onCerrar={() => { setShowMovForm(false); setEditMov(null); }} />
+        )}
+      </div>
+    );
+  }
+
+  // ===== Vista lista de cuentas =====
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <button onClick={onVolver} className={`flex items-center gap-1 text-sm font-medium ${D.textMuted}`}>
+        <ChevronLeft className="w-4 h-4" /> Resumen
+      </button>
+      <h1 className={`font-serif text-2xl font-semibold ${D.text}`}>Ahorro</h1>
+      <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${D.bgHero} text-white p-5`}>
+        <div className="absolute inset-0 grain opacity-30" />
+        <div className="relative">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400">Ahorro total</p>
+          <div className="mt-2 font-serif text-4xl font-semibold">{formatMonto(total, config.moneda)}</div>
+        </div>
+      </div>
+      <div className="space-y-2">
+        {cuentasAhorro.map(c => (
+          <div key={c.id} onClick={() => setCuentaSel(c.id)}
+            className={`rounded-2xl border p-4 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
+            <div className="flex-1 min-w-0">
+              <p className={`font-medium text-sm ${D.text}`}>{c.nombre}</p>
+              {c.id === CUENTA_AHORRO_PRINCIPAL_ID && <p className={`text-[11px] ${D.textMuted}`}>Aportes automáticos del presupuesto</p>}
+            </div>
+            <div className={`font-serif font-semibold ${D.text}`}>{formatMonto(saldos[c.id] || 0, config.moneda)}</div>
+            <ChevronRight className={`w-4 h-4 flex-shrink-0 ${D.textMuted}`} />
+          </div>
+        ))}
+      </div>
+      <button onClick={() => setShowCuentaForm(true)}
+        className={`w-full py-3 rounded-xl text-sm font-medium border-2 border-dashed ${D.borderMuted} ${D.textMuted}`}>
+        + Nueva cuenta o meta de ahorro
+      </button>
+      {showCuentaForm && (
+        <FormularioCuentaAhorro D={D}
+          onGuardar={(c) => { onGuardarCuenta(c); setShowCuentaForm(false); }}
+          onCerrar={() => setShowCuentaForm(false)} />
+      )}
+    </div>
+  );
+}
+
+// ============ FORMULARIO: MOVIMIENTO DE AHORRO (MODAL) ============
+function FormularioMovimientoAhorro({ cuenta, mov, config, D, onGuardar, onEliminar, onCerrar }) {
+  const [direccion, setDireccion] = useState(mov?.subcategoria || 'aporte');
+  const [monto, setMonto] = useState(mov?.monto || '');
+  const [detalle, setDetalle] = useState(mov?.detalle || '');
+  const [fecha, setFecha] = useState(mov?.fecha ? extraerFecha(mov.fecha) : toISODate(nowLocal()));
+  const editando = !!mov?.id;
+
+  const submit = () => {
+    if (!monto) return;
+    onGuardar({
+      ...(editando ? { id: mov.id } : {}),
+      tipo: 'ahorro', tipoRegistro: 'real', categoria: cuenta.id, subcategoria: direccion,
+      detalle, monto: parseFloat(monto), fecha, persona: config.persona, veces: 1,
+    });
+    onCerrar();
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
+      <div className={`w-full max-w-md rounded-t-3xl flex flex-col animate-slide-up shadow-2xl ${D.bg}`}>
+        <div className={`px-5 pt-4 pb-3 border-b ${D.bgMuted} ${D.border} flex items-center justify-between rounded-t-3xl`}>
+          <h2 className={`font-serif text-lg font-semibold ${D.text}`}>{editando ? 'Editar movimiento' : `${cuenta.emoji} ${cuenta.nombre}`}</h2>
+          <button onClick={onCerrar} className={`p-1.5 rounded-full ${D.bgCard}`}><X className={`w-5 h-5 ${D.text}`} /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className={`grid grid-cols-2 gap-1 p-1 rounded-xl ${D.bgMuted}`}>
+            {['aporte', 'retiro'].map(d => (
+              <button key={d} onClick={() => setDireccion(d)}
+                className={`py-1.5 rounded-lg text-xs font-medium transition ${direccion === d ? D.bgCard + ' shadow-sm ' + D.text : D.textMuted}`}>
+                {d === 'aporte' ? '↑ Aporte' : '↓ Retiro'}
+              </button>
+            ))}
+          </div>
+          <div className="text-center py-1">
+            <div className="flex items-center justify-center gap-1.5">
+              <span className={`font-serif text-xl ${D.textMuted}`}>{config.moneda}</span>
+              <input type="number" inputMode="decimal" value={monto} onChange={e => setMonto(e.target.value)} placeholder="0.00" autoFocus
+                className={`font-serif text-4xl font-semibold bg-transparent text-center w-44 outline-none placeholder:text-stone-400 ${D.text}`} />
+            </div>
+          </div>
+          <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+            className={`w-full px-3 py-2 rounded-xl text-sm border outline-none ${D.bgInput} ${D.border} ${D.text}`} />
+          <input type="text" value={detalle} onChange={e => setDetalle(e.target.value)} placeholder="Detalle (opcional)"
+            className={`w-full px-3 py-2 rounded-xl text-sm border outline-none ${D.bgInput} ${D.border} ${D.text}`} />
+        </div>
+        <div className={`px-5 py-3 border-t ${D.bgMuted} ${D.border}`}>
+          <button onClick={submit} disabled={!monto} className="w-full py-3 bg-stone-900 text-white font-semibold rounded-xl disabled:opacity-30 active:scale-[0.98] transition">
+            {editando ? 'Actualizar' : 'Guardar'}
+          </button>
+          {editando && (
+            <button onClick={() => { onEliminar(mov.id); onCerrar(); }}
+              className="w-full mt-2 py-2.5 rounded-xl text-sm font-medium text-red-500 border border-red-200 bg-red-50 transition active:scale-[0.98]">
+              <Trash2 className="w-4 h-4 inline mr-1.5" />Eliminar movimiento
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ FORMULARIO: NUEVA CUENTA/META DE AHORRO (MODAL) ============
+function FormularioCuentaAhorro({ D, onGuardar, onCerrar }) {
+  const [nombre, setNombre] = useState('');
+  const [emoji, setEmoji] = useState('🎯');
+  const [color, setColor] = useState('#3A86FF');
+  const colores = ['#E76F51','#F4A261','#2A9D8F','#264653','#8338EC','#FF006E','#3A86FF','#06D6A0','#EF233C','#FFD60A'];
+
+  const submit = () => {
+    if (!nombre.trim()) return;
+    const id = 'ah_' + nombre.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_');
+    onGuardar({ id, nombre: nombre.trim(), emoji, color, orden: 99, activo: true });
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/60 flex items-end justify-center">
+      <div className={`w-full max-w-md rounded-t-3xl flex flex-col animate-slide-up shadow-2xl ${D.bg}`}>
+        <div className={`px-5 pt-4 pb-3 border-b ${D.bgMuted} ${D.border} flex items-center justify-between rounded-t-3xl`}>
+          <h2 className={`font-serif text-lg font-semibold ${D.text}`}>Nueva cuenta o meta</h2>
+          <button onClick={onCerrar} className={`p-1.5 rounded-full ${D.bgCard}`}><X className={`w-5 h-5 ${D.text}`} /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="flex gap-2">
+            <input type="text" value={emoji} onChange={e => setEmoji(e.target.value)} maxLength={2}
+              className={`w-12 px-2 py-2 border rounded-lg text-center text-xl ${D.bgInput} ${D.border}`} />
+            <input type="text" value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Nombre (ej: Viaje, Emergencia)"
+              className={`flex-1 px-3 py-2 border rounded-lg text-sm ${D.bgInput} ${D.border} ${D.text}`} />
+          </div>
+          <div className="flex gap-1.5 flex-wrap">
+            {colores.map(c => (
+              <button key={c} onClick={() => setColor(c)} className={`w-6 h-6 rounded-full ${color === c ? 'ring-2 ring-offset-1 ring-stone-900' : ''}`} style={{ backgroundColor: c }} />
+            ))}
+          </div>
+        </div>
+        <div className={`px-5 py-3 border-t ${D.bgMuted} ${D.border}`}>
+          <button onClick={submit} disabled={!nombre.trim()} className="w-full py-3 bg-stone-900 text-white font-semibold rounded-xl disabled:opacity-30 active:scale-[0.98] transition">
+            + Crear
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ============ FORMULARIO COMPLETO (MODAL) ============
 function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuardar, onEliminar, onCerrar, D }) {
