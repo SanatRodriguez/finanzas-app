@@ -604,7 +604,8 @@ export default function App() {
         )}
         {vista === 'analisis' && (
           online || transacciones.length > 0 ? (
-            <Analisis transacciones={transaccionesPresupuesto} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D} />
+            <Analisis transacciones={transaccionesPresupuesto} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D}
+              onEditar={(tx) => { setEditTx(tx); setShowFormCompleto(true); }} />
           ) : <OfflineMsg D={D} />
         )}
         {vista === 'ahorro' && (
@@ -864,7 +865,8 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
       <div className={`sticky z-20 pt-1 pb-1 ${D.bg}`} style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))' }}>
         <button onClick={guardar}
           disabled={!monto || parseFloat(monto.replace(',','.')) <= 0 || !categoria}
-          className="w-full py-3 bg-stone-900 text-white font-semibold rounded-xl text-base transition disabled:opacity-30 active:scale-[0.98] shadow-lg">
+          style={{ backgroundColor: D.accentDot }}
+          className="w-full py-3 text-white font-semibold rounded-xl text-base transition disabled:opacity-30 active:scale-[0.98] shadow-lg">
           {cat ? `${cat.emoji} Guardar ${tipo}` : 'Selecciona categoría'}
         </button>
       </div>
@@ -881,8 +883,8 @@ function VistaAgregar({ catGasto, catIngreso, config, transacciones, onGuardar, 
           <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>Registrado ✓</p>
           <pre className={`text-xs whitespace-pre-wrap font-sans mb-3 ${D.textSub}`}>{ultimoRegistro.mensaje}</pre>
           <div className="flex gap-2">
-            <button onClick={compartirRegistro}
-              className="flex-1 py-2.5 bg-stone-900 text-white font-semibold rounded-xl text-sm transition active:scale-[0.98]">
+            <button onClick={compartirRegistro} style={{ backgroundColor: D.accentDot }}
+              className="flex-1 py-2.5 text-white font-semibold rounded-xl text-sm transition active:scale-[0.98]">
               📤 Compartir a grupo
             </button>
             <button onClick={() => setUltimoRegistro(null)}
@@ -946,7 +948,7 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
       {/* Hero Balance */}
       <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${D.bgHero} text-white p-5`}>
         <div className="absolute inset-0 grain opacity-30" />
-        <div className="absolute -top-20 -right-20 w-64 h-64 bg-amber-500/20 rounded-full blur-3xl" />
+        <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full blur-3xl" style={{ backgroundColor: D.accentDot + '33' }} />
         <div className="relative">
           <div className="flex items-center justify-between">
             <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400">Balance del período</p>
@@ -995,20 +997,6 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
         <ChevronRight className={`w-5 h-5 ${D.textMuted}`} />
       </div>
 
-      {/* Ejecución */}
-      <div onClick={onVerAnalisis} className={`rounded-2xl border p-4 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
-        <div className="flex items-center justify-between mb-2">
-          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Ejecución</p>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stats.ejecucion <= 80 ? 'bg-emerald-50 text-emerald-700' : stats.ejecucion <= 100 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
-            {stats.ejecucion.toFixed(0)}%
-          </span>
-        </div>
-        <div className={`h-2 rounded-full overflow-hidden ${D.bgMuted}`}>
-          <div className={`h-full transition-all duration-700 ${stats.ejecucion <= 80 ? 'bg-emerald-500' : stats.ejecucion <= 100 ? 'bg-amber-500' : 'bg-red-500'}`}
-            style={{ width: `${Math.min(stats.ejecucion, 100)}%` }} />
-        </div>
-      </div>
-
       {/* ===== ESTADO DEL PRESUPUESTO — ritmo del mes ===== */}
       {(() => {
         const hoy = nowLocal();
@@ -1037,8 +1025,13 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
           .slice(0, 3);
 
         return (
-          <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
-            <p className={`text-[10px] uppercase tracking-widest mb-3 ${D.textMuted}`}>Estado del presupuesto</p>
+          <div onClick={onVerAnalisis} className={`rounded-2xl border p-4 cursor-pointer active:scale-[0.98] transition ${D.bgCard} ${D.border}`}>
+            <div className="flex items-center justify-between mb-3">
+              <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>Estado del presupuesto</p>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pctGasto <= 80 ? 'bg-emerald-50 text-emerald-700' : pctGasto <= 100 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
+                {pctGasto.toFixed(0)}%
+              </span>
+            </div>
 
             {/* Doble barra: tiempo vs gasto */}
             <div className="space-y-2 mb-3">
@@ -1070,14 +1063,6 @@ function Dashboard({ stats, txDelMes, catGasto, catIngreso, config, D, mesActual
                   : <>⚠ Vas adelantado. Gastaste {pctGasto.toFixed(0)}% y solo va {pctTiempo.toFixed(0)}% del mes.</>}
               </div>
             )}
-
-            {/* Excedente proyectado */}
-            <div className={`flex items-center justify-between rounded-xl p-2.5 mb-3 ${D.bgMuted}`}>
-              <span className={`text-[11px] ${D.textSub}`}>Excedente proyectado</span>
-              <span className={`text-sm font-bold ${stats.balanceProy >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {hidden ? `${config.moneda} ••••` : `${stats.balanceProy >= 0 ? '+' : ''}${formatMonto(stats.balanceProy, config.moneda)}`}
-              </span>
-            </div>
 
             {/* Alertas de categorías */}
             {alertas.length > 0 ? (
@@ -1230,8 +1215,8 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
       {/* Filtros */}
       <div className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1">
         {['todos','real','proyectado','gasto','ingreso'].map(f => (
-          <button key={f} onClick={() => setFiltro(f)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition capitalize ${filtro === f ? 'bg-stone-900 text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
+          <button key={f} onClick={() => setFiltro(f)} style={filtro === f ? { backgroundColor: D.accentDot } : undefined}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition capitalize ${filtro === f ? 'text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
             {f === 'todos' ? 'Todos' : f === 'proyectado' ? 'Presupuesto' : f === 'real' ? 'Real' : f === 'gasto' ? 'Gastos' : 'Ingresos'}
           </button>
         ))}
@@ -1293,8 +1278,10 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
 }
 
 // ============ ANÁLISIS ============
-function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
+function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) {
   const [filtro, setFiltro] = useState('mes');
+  const [tipoRegFiltro, setTipoRegFiltro] = useState('todos'); // 'todos' | 'real' | 'proyectado'
+  const [catFiltro, setCatFiltro] = useState('todas');
   const [selectedCat, setSelectedCat] = useState(null);
   const [expandedCat, setExpandedCat] = useState(null);
   const [showFiltros, setShowFiltros] = useState(false);
@@ -1323,7 +1310,15 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
     return rangos;
   }, [transacciones, config, filtro]);
 
-  const allTxsPeriod = useMemo(() => meses.flatMap(m => m.txs), [meses]);
+  const allTxsPeriod = useMemo(() => {
+    let txs = meses.flatMap(m => m.txs);
+    if (tipoRegFiltro !== 'todos') txs = txs.filter(t => t.tipoRegistro === tipoRegFiltro);
+    return txs;
+  }, [meses, tipoRegFiltro]);
+
+  const registrosDe = (catId) => [...allTxsPeriod]
+    .filter(t => t.tipo === 'gasto' && t.categoria === catId)
+    .sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
 
   // Categorías del período (para la lista "Detalle" según el filtro elegido)
   const analisisCat = useMemo(() => {
@@ -1350,6 +1345,8 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
     const inactive = items.filter(c => c.real === 0 && c.proy === 0);
     return [...active, ...inactive];
   }, [allTxsPeriod, catGasto]);
+
+  const categoriasMostradas = catFiltro === 'todas' ? analisisCat : analisisCat.filter(c => c.id === catFiltro);
 
   const barColor = (ejec) => ejec === null ? 'bg-stone-400' : ejec <= 80 ? 'bg-emerald-500' : ejec <= 100 ? 'bg-amber-500' : 'bg-red-500';
   const badgeColor = (ejec) => ejec === null ? 'bg-stone-100 text-stone-500' : ejec <= 80 ? 'bg-emerald-50 text-emerald-700' : ejec <= 100 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
@@ -1427,14 +1424,16 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
       </div>
 
       {/* Filtro: Mes actual por defecto + desplegable para otros */}
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-2.5">
         <button onClick={() => { setFiltro('mes'); setSelectedCat(null); setShowFiltros(false); }}
-          className={`py-2 px-4 rounded-xl text-xs font-medium border transition ${filtro === 'mes' ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+          style={filtro === 'mes' ? { backgroundColor: D.accentDot } : undefined}
+          className={`py-2 px-4 rounded-xl text-xs font-medium border transition ${filtro === 'mes' ? 'text-white border-transparent' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
           {meses.length === 1 ? meses[0]?.fullLabel || 'Mes actual' : 'Mes actual'}
         </button>
         <div className="relative">
           <button onClick={() => setShowFiltros(!showFiltros)}
-            className={`py-2 px-3 rounded-xl text-xs font-medium border transition flex items-center gap-1 ${filtro !== 'mes' ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+            style={filtro !== 'mes' ? { backgroundColor: D.accentDot } : undefined}
+            className={`py-2 px-3 rounded-xl text-xs font-medium border transition flex items-center gap-1 ${filtro !== 'mes' ? 'text-white border-transparent' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
             {filtro === '3m' ? '3 meses' : filtro === '6m' ? '6 meses' : filtro === 'year' ? 'Año' : 'Más'} <ChevronRight className={`w-3 h-3 transition ${showFiltros ? 'rotate-90' : ''}`} />
           </button>
           {showFiltros && (
@@ -1450,11 +1449,37 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
         </div>
       </div>
 
+      {/* Filtro: tipo de registro */}
+      <div className="flex gap-1.5 mb-2.5">
+        {['todos','real','proyectado'].map(t => (
+          <button key={t} onClick={() => setTipoRegFiltro(t)} style={tipoRegFiltro === t ? { backgroundColor: D.accentDot } : undefined}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${tipoRegFiltro === t ? 'text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
+            {t === 'todos' ? 'Todos' : t === 'real' ? '⚡ Real' : '📅 Presupuesto'}
+          </button>
+        ))}
+      </div>
+
+      {/* Filtro: categoría */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 mb-4 -mx-1 px-1">
+        <button onClick={() => setCatFiltro('todas')} style={catFiltro === 'todas' ? { backgroundColor: D.accentDot } : undefined}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition ${catFiltro === 'todas' ? 'text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
+          Todas
+        </button>
+        {catGasto.map(c => (
+          <button key={c.id} onClick={() => setCatFiltro(c.id)} style={catFiltro === c.id ? { backgroundColor: c.color } : undefined}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition ${catFiltro === c.id ? 'text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
+            {c.emoji} {c.nombre}
+          </button>
+        ))}
+      </div>
+
       {/* Detalle por categoría */}
       <div className="mt-4">
-        <h2 className={`font-serif text-lg font-semibold mb-2 px-1 ${D.text}`}>Detalle — {periodoLabel}</h2>
+        <h2 className={`font-serif text-lg font-semibold mb-2 px-1 ${D.text}`}>
+          Detalle — {periodoLabel}{tipoRegFiltro !== 'todos' ? ` · ${tipoRegFiltro === 'real' ? 'Real' : 'Presupuesto'}` : ''}
+        </h2>
         <div className="space-y-1.5">
-          {analisisCat.map(c => {
+          {categoriasMostradas.map(c => {
             const isZero = c.real === 0 && c.proy === 0;
             return (
               <div key={c.id}>
@@ -1470,7 +1495,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
                       </p>
                     </div>
                     {!isZero && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badgeColor(c.ejec)}`}>{c.ejec !== null ? `${c.ejec.toFixed(0)}%` : 'S/P'}</span>}
-                    {c.subs.length > 0 && <ChevronRight className={`w-4 h-4 transition ${D.textMuted} ${expandedCat === c.id ? 'rotate-90' : ''}`} />}
+                    {!isZero && <ChevronRight className={`w-4 h-4 transition ${D.textMuted} ${expandedCat === c.id ? 'rotate-90' : ''}`} />}
                   </div>
                   {!isZero && (
                     <div className={`h-1.5 rounded-full overflow-hidden ${D.bgMuted}`}>
@@ -1478,9 +1503,9 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
                     </div>
                   )}
                 </button>
-                {expandedCat === c.id && c.subs.length > 0 && (
+                {expandedCat === c.id && !isZero && (
                   <div className={`ml-6 mt-1 space-y-1 border-l-2 pl-3 ${D.border}`}>
-                    {c.subs.sort((a,b) => b.real - a.real).map(s => {
+                    {c.subs.length > 0 && c.subs.sort((a,b) => b.real - a.real).map(s => {
                       const sEjec = s.proy > 0 ? (s.real / s.proy) * 100 : null;
                       return (
                         <div key={s.name} className={`rounded-lg p-2 ${D.bgMuted}`}>
@@ -1495,6 +1520,25 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D }) {
                         </div>
                       );
                     })}
+                    <div className="pt-1">
+                      <p className={`text-[10px] uppercase tracking-widest mb-1 ${D.textMuted}`}>Registros</p>
+                      <div className="space-y-1">
+                        {registrosDe(c.id).map(tx => (
+                          <div key={tx.id} onClick={() => onEditar(tx)}
+                            className={`rounded-lg p-2 flex items-center justify-between gap-2 cursor-pointer active:scale-[0.98] transition ${D.bgMuted}`}>
+                            <div className="min-w-0">
+                              <p className={`text-xs font-medium truncate ${D.text}`}>
+                                {tx.detalle || c.nombre}
+                                {tx.tipoRegistro === 'proyectado' && <span className="ml-1 text-[8px] uppercase tracking-wide bg-stone-200 text-stone-600 px-1 py-0.5 rounded font-bold align-middle">Presup.</span>}
+                              </p>
+                              <p className={`text-[10px] ${D.textMuted}`}>{formatFechaCorta(parseFechaLima(tx.fecha))}</p>
+                            </div>
+                            <span className={`text-xs font-semibold flex-shrink-0 ${D.text}`}>{formatMonto(tx.monto, config.moneda)}</span>
+                          </div>
+                        ))}
+                        {registrosDe(c.id).length === 0 && <p className={`text-[11px] ${D.textMuted}`}>Sin registros en este período</p>}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1542,8 +1586,8 @@ function Ahorro({ transacciones, cuentasAhorro, saldos, total, config, D, onGuar
             )}
           </div>
         </div>
-        <button onClick={() => { setEditMov(null); setShowMovForm(true); }}
-          className="w-full py-3 bg-stone-900 text-white font-semibold rounded-xl active:scale-[0.98] transition">
+        <button onClick={() => { setEditMov(null); setShowMovForm(true); }} style={{ backgroundColor: D.accentDot }}
+          className="w-full py-3 text-white font-semibold rounded-xl active:scale-[0.98] transition">
           <Plus className="w-4 h-4 inline mr-1" /> Registrar movimiento
         </button>
         <div className="space-y-1.5">
@@ -1589,6 +1633,7 @@ function Ahorro({ transacciones, cuentasAhorro, saldos, total, config, D, onGuar
       <h1 className={`font-serif text-2xl font-semibold ${D.text}`}>Ahorro</h1>
       <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${D.bgHero} text-white p-5`}>
         <div className="absolute inset-0 grain opacity-30" />
+        <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full blur-3xl" style={{ backgroundColor: D.accentDot + '33' }} />
         <div className="relative">
           <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400">Ahorro total</p>
           <div className="mt-2 font-serif text-4xl font-semibold">{formatMonto(total, config.moneda)}</div>
@@ -1668,7 +1713,7 @@ function FormularioMovimientoAhorro({ cuenta, mov, config, D, onGuardar, onElimi
             className={`w-full px-3 py-2 rounded-xl text-sm border outline-none ${D.bgInput} ${D.border} ${D.text}`} />
         </div>
         <div className={`px-5 py-3 border-t ${D.bgMuted} ${D.border}`}>
-          <button onClick={submit} disabled={!monto} className="w-full py-3 bg-stone-900 text-white font-semibold rounded-xl disabled:opacity-30 active:scale-[0.98] transition">
+          <button onClick={submit} disabled={!monto} style={{ backgroundColor: D.accentDot }} className="w-full py-3 text-white font-semibold rounded-xl disabled:opacity-30 active:scale-[0.98] transition">
             {editando ? 'Actualizar' : 'Guardar'}
           </button>
           {editando && (
@@ -1717,7 +1762,7 @@ function FormularioCuentaAhorro({ D, onGuardar, onCerrar }) {
           </div>
         </div>
         <div className={`px-5 py-3 border-t ${D.bgMuted} ${D.border}`}>
-          <button onClick={submit} disabled={!nombre.trim()} className="w-full py-3 bg-stone-900 text-white font-semibold rounded-xl disabled:opacity-30 active:scale-[0.98] transition">
+          <button onClick={submit} disabled={!nombre.trim()} style={{ backgroundColor: D.accentDot }} className="w-full py-3 text-white font-semibold rounded-xl disabled:opacity-30 active:scale-[0.98] transition">
             + Crear
           </button>
         </div>
@@ -1813,8 +1858,8 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
             </div>
             <div className="flex gap-2 justify-center mt-2">
               {['real','proyectado'].map(t => (
-                <button key={t} onClick={() => setTipoRegistro(t)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium transition ${tipoRegistro === t ? 'bg-stone-900 text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
+                <button key={t} onClick={() => setTipoRegistro(t)} style={tipoRegistro === t ? { backgroundColor: D.accentDot } : undefined}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition ${tipoRegistro === t ? 'text-white' : D.bgCard + ' border ' + D.border + ' ' + D.textSub}`}>
                   {t === 'real' ? '⚡ Real' : '📅 Presup.'}
                 </button>
               ))}
@@ -1825,12 +1870,12 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
           {mostrarCalculadora && (
             <div className={`rounded-xl border p-3 ${D.bgCard} ${D.border}`}>
               <div className="flex gap-1.5 mb-2">
-                <button onClick={() => setModoMonto('fijo')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition ${modoMonto === 'fijo' ? 'bg-stone-900 text-white border-stone-900' : D.bgMuted + ' ' + D.border + ' ' + D.textSub}`}>
+                <button onClick={() => setModoMonto('fijo')} style={modoMonto === 'fijo' ? { backgroundColor: D.accentDot, borderColor: D.accentDot } : undefined}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition ${modoMonto === 'fijo' ? 'text-white' : D.bgMuted + ' ' + D.border + ' ' + D.textSub}`}>
                   Monto fijo
                 </button>
-                <button onClick={() => setModoMonto('pct')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition ${modoMonto === 'pct' ? 'bg-stone-900 text-white border-stone-900' : D.bgMuted + ' ' + D.border + ' ' + D.textSub}`}>
+                <button onClick={() => setModoMonto('pct')} style={modoMonto === 'pct' ? { backgroundColor: D.accentDot, borderColor: D.accentDot } : undefined}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition ${modoMonto === 'pct' ? 'text-white' : D.bgMuted + ' ' + D.border + ' ' + D.textSub}`}>
                   % del ingreso
                 </button>
               </div>
@@ -1889,12 +1934,12 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
             <div>
               <label className={`text-[10px] uppercase tracking-widest mb-1.5 block ${D.textMuted}`}>Aplicar cambio de fecha a</label>
               <div className="flex gap-1.5">
-                <button onClick={() => setAplicarFuturos(false)}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${!aplicarFuturos ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+                <button onClick={() => setAplicarFuturos(false)} style={!aplicarFuturos ? { backgroundColor: D.accentDot, borderColor: D.accentDot } : undefined}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${!aplicarFuturos ? 'text-white' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
                   Solo este mes
                 </button>
-                <button onClick={() => setAplicarFuturos(true)}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${aplicarFuturos ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+                <button onClick={() => setAplicarFuturos(true)} style={aplicarFuturos ? { backgroundColor: D.accentDot, borderColor: D.accentDot } : undefined}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${aplicarFuturos ? 'text-white' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
                   Este mes en adelante
                 </button>
               </div>
@@ -1911,8 +1956,8 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
               <label className={`text-[10px] uppercase tracking-widest mb-1.5 block ${D.textMuted}`}>Repetir</label>
               <div className="flex gap-1.5">
                 {[1,3,6,12].map(v => (
-                  <button key={v} onClick={() => setVeces(v)}
-                    className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${veces === v ? 'bg-stone-900 text-white border-stone-900' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+                  <button key={v} onClick={() => setVeces(v)} style={veces === v ? { backgroundColor: D.accentDot, borderColor: D.accentDot } : undefined}
+                    className={`flex-1 py-2 rounded-lg text-xs font-medium border transition ${veces === v ? 'text-white' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
                     {v === 1 ? 'Solo 1' : `${v} meses`}
                   </button>
                 ))}
@@ -1926,7 +1971,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
             className={`w-full px-3 py-2 rounded-xl text-sm border outline-none ${D.bgInput} ${D.border} ${D.text}`} />
         </div>
         <div className={`px-5 py-3 border-t ${D.bgMuted} ${D.border}`}>
-          <button onClick={submit} className="w-full py-3 bg-stone-900 text-white font-semibold rounded-xl transition active:scale-[0.98]">
+          <button onClick={submit} style={{ backgroundColor: D.accentDot }} className="w-full py-3 text-white font-semibold rounded-xl transition active:scale-[0.98]">
             {editando ? 'Actualizar' : 'Guardar'}
           </button>
           {editando && (
@@ -1995,7 +2040,8 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
         <div className="flex gap-2">
           {['S/.','$','€','£'].map(m => (
             <button key={m} onClick={() => setConfig({ ...config, moneda: m })}
-              className={`flex-1 py-2 rounded-xl border-2 font-serif text-lg ${config.moneda === m ? 'border-stone-900 bg-stone-900 text-white' : D.border + ' ' + D.bgCard}`}>{m}</button>
+              style={config.moneda === m ? { borderColor: D.accentDot, backgroundColor: D.accentDot } : undefined}
+              className={`flex-1 py-2 rounded-xl border-2 font-serif text-lg ${config.moneda === m ? 'text-white' : D.border + ' ' + D.bgCard}`}>{m}</button>
           ))}
         </div>
       </Sec>
@@ -2011,7 +2057,8 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
                 saveL(KEYS.CONFIG, newCfg);
                 if (scriptUrl) { try { await apiSaveSetting(scriptUrl, 'pais', p.code); } catch {} }
               }}
-              className={`p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${config.pais === p.code ? 'border-stone-900 ' + D.bgMuted : D.border + ' ' + D.bgCard}`}>
+              style={config.pais === p.code ? { borderColor: D.accentDot } : undefined}
+              className={`p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${config.pais === p.code ? D.bgMuted : D.border + ' ' + D.bgCard}`}>
               <span className="text-lg">{p.emoji}</span>
               <span className={`font-medium ${D.text}`}>{p.nombre}</span>
             </button>
@@ -2025,18 +2072,21 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
         <div className="grid grid-cols-3 gap-2 mb-3">
           {[{id:'claro',e:'☀️',l:'Claro'},{id:'oscuro',e:'🌙',l:'Oscuro'},{id:'auto',e:'⚙️',l:'Sistema'}].map(t => (
             <button key={t.id} onClick={() => setConfig({ ...config, tema: t.id })}
-              className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition ${config.tema === t.id ? 'border-stone-900 ' + D.bgMuted : D.border + ' ' + D.bgCard}`}>
+              style={config.tema === t.id ? { borderColor: D.accentDot } : undefined}
+              className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition ${config.tema === t.id ? D.bgMuted : D.border + ' ' + D.bgCard}`}>
               <span className="text-xl">{t.e}</span><span className={`text-[11px] font-medium ${D.textSub}`}>{t.l}</span>
             </button>
           ))}
         </div>
-        <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>Acento</p>
-        <div className="flex gap-1.5 flex-wrap">
+        <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>Color de la app</p>
+        <p className={`text-xs mb-2 ${D.textMuted}`}>Cada quien puede elegir el suyo — se guarda solo en este dispositivo.</p>
+        <div className="grid grid-cols-5 gap-2">
           {Object.entries(ACENTOS).map(([id, a]) => (
             <button key={id} onClick={() => setConfig({ ...config, acento: id })}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border-2 text-xs font-medium transition ${config.acento === id ? 'border-stone-900' : D.border} ${D.bgCard}`}>
-              <span className="w-3 h-3 rounded-full" style={{ backgroundColor: a.dot }} />
-              <span className={D.textSub}>{a.label}</span>
+              style={config.acento === id ? { borderColor: a.dot } : undefined}
+              className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border-2 transition ${config.acento === id ? D.bgMuted : D.border + ' ' + D.bgCard}`}>
+              <span className="w-7 h-7 rounded-full" style={{ backgroundColor: a.dot }} />
+              <span className={`text-[10px] font-medium ${D.textSub}`}>{a.label}</span>
             </button>
           ))}
         </div>
@@ -2064,7 +2114,7 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
           className={`w-full px-3 py-2 rounded-xl text-xs border outline-none font-mono ${D.bgInput} ${D.border} ${D.text}`} />
         <div className="grid grid-cols-2 gap-2 mt-2">
           <button onClick={() => { setScriptUrl(tempUrl.trim()); setTimeout(() => location.reload(), 300); }}
-            disabled={!tempUrl.trim() || tempUrl === scriptUrl} className="py-2.5 bg-stone-900 text-white rounded-xl text-sm font-medium disabled:opacity-30">Guardar</button>
+            disabled={!tempUrl.trim() || tempUrl === scriptUrl} style={{ backgroundColor: D.accentDot }} className="py-2.5 text-white rounded-xl text-sm font-medium disabled:opacity-30">Guardar</button>
           <button onClick={onSincronizar} disabled={!scriptUrl || syncStatus === 'syncing'}
             className={`py-2.5 rounded-xl text-sm font-medium border disabled:opacity-30 ${D.bgCard} ${D.border} ${D.text}`}>🔄 Sync</button>
         </div>
@@ -2133,7 +2183,7 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
                     className={`w-6 h-6 rounded-full ${nuevaCat.color === c ? 'ring-2 ring-offset-1 ring-stone-900' : ''}`} style={{ backgroundColor: c }} />
                 ))}
               </div>
-              <button onClick={handleGuardarCat} disabled={!nuevaCat.nombre.trim()} className="w-full py-2 bg-stone-900 text-white rounded-lg text-sm font-medium disabled:opacity-30">
+              <button onClick={handleGuardarCat} disabled={!nuevaCat.nombre.trim()} style={{ backgroundColor: D.accentDot }} className="w-full py-2 text-white rounded-lg text-sm font-medium disabled:opacity-30">
                 {editandoCat ? 'Actualizar' : '+ Agregar'}
               </button>
             </div>
