@@ -1294,45 +1294,54 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
 
 // ============ ANÁLISIS ============
 function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) {
-  const [filtro, setFiltro] = useState('mes');
   const [tipoRegFiltro, setTipoRegFiltro] = useState('todos'); // 'todos' | 'real' | 'proyectado'
   const [catFiltros, setCatFiltros] = useState([]); // [] = todas las categorías
+  const [mesesFiltro, setMesesFiltro] = useState(() => {
+    const rango = getRangoMesFinanciero(nowLocal(), config.diaInicioMes, config.ajustarFinDeSemana);
+    return [`${rango.inicio.getFullYear()}-${String(rango.inicio.getMonth() + 1).padStart(2, '0')}`];
+  }); // [] = todos los meses del histórico
   const [selectedCat, setSelectedCat] = useState(null);
   const [expandedCat, setExpandedCat] = useState(null);
   const [showFiltros, setShowFiltros] = useState(false);
   const [showCatFiltro, setShowCatFiltro] = useState(false);
 
   const toggleCatFiltro = (id) => setCatFiltros(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const toggleMesFiltro = (key) => setMesesFiltro(prev => prev.includes(key) ? prev.filter(x => x !== key) : [...prev, key]);
 
   const accentColor = ACENTOS[config.acento || 'amber'].dot;
 
-  // Meses según filtro
-  const meses = useMemo(() => {
-    const hoy = nowLocal();
-    let numMeses = filtro === 'mes' ? 1 : filtro === '3m' ? 3 : filtro === '6m' ? 6 : 12;
-    const rangos = [];
-    for (let i = numMeses - 1; i >= 0; i--) {
-      const ref = new Date(hoy); ref.setMonth(ref.getMonth() - i);
-      const rango = getRangoMesFinanciero(ref, config.diaInicioMes, config.ajustarFinDeSemana);
-      const key = `${rango.inicio.getFullYear()}-${String(rango.inicio.getMonth()+1).padStart(2,'0')}`;
-      if (rangos.find(r => r.key === key)) continue;
-      const txs = transacciones.filter(t => {
-        if (!t.fecha) return false;
-        const f = parseFechaLima(extraerFecha(t.fecha));
-        return f >= rango.inicio && f <= rango.fin;
-      });
-      const gp = txs.filter(t => t.tipo === 'gasto' && t.tipoRegistro === 'proyectado').reduce((s,t) => s + Number(t.monto), 0);
-      const gr = txs.filter(t => t.tipo === 'gasto' && t.tipoRegistro === 'real').reduce((s,t) => s + Number(t.monto), 0);
-      rangos.push({ key, label: NOMBRES_MES_LARGO[rango.inicio.getMonth()].slice(0,3), fullLabel: NOMBRES_MES_LARGO[rango.inicio.getMonth()], gp, gr, txs });
+  // Todos los meses (períodos financieros) que aparecen en el histórico de transacciones,
+  // para que el filtro de período sea de selección libre (como categoría) — no rangos fijos.
+  const todosLosMeses = useMemo(() => {
+    const conFecha = transacciones.filter(t => t.fecha).map(t => parseFechaLima(extraerFecha(t.fecha)));
+    if (conFecha.length === 0) return [];
+    const minF = new Date(Math.min(...conFecha));
+    const maxF = new Date(Math.max(...conFecha));
+    const out = [];
+    let cursor = new Date(minF.getFullYear(), minF.getMonth(), 15);
+    const fin = new Date(maxF.getFullYear(), maxF.getMonth(), 15);
+    while (cursor <= fin) {
+      const rango = getRangoMesFinanciero(cursor, config.diaInicioMes, config.ajustarFinDeSemana);
+      const key = `${rango.inicio.getFullYear()}-${String(rango.inicio.getMonth() + 1).padStart(2, '0')}`;
+      if (!out.find(m => m.key === key)) {
+        out.push({ key, inicio: rango.inicio, fin: rango.fin, label: `${NOMBRES_MES_LARGO[rango.inicio.getMonth()]} ${rango.inicio.getFullYear()}` });
+      }
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 15);
     }
-    return rangos;
-  }, [transacciones, config, filtro]);
+    return out.sort((a, b) => b.key.localeCompare(a.key));
+  }, [transacciones, config]);
+
+  const mesesSeleccionados = mesesFiltro.length === 0 ? todosLosMeses : todosLosMeses.filter(m => mesesFiltro.includes(m.key));
 
   const allTxsPeriod = useMemo(() => {
-    let txs = meses.flatMap(m => m.txs);
+    let txs = transacciones.filter(t => {
+      if (!t.fecha) return false;
+      const f = parseFechaLima(extraerFecha(t.fecha));
+      return mesesSeleccionados.some(m => f >= m.inicio && f <= m.fin);
+    });
     if (tipoRegFiltro !== 'todos') txs = txs.filter(t => t.tipoRegistro === tipoRegFiltro);
     return txs;
-  }, [meses, tipoRegFiltro]);
+  }, [transacciones, mesesSeleccionados, tipoRegFiltro]);
 
   const registrosDe = (catId) => [...allTxsPeriod]
     .filter(t => t.tipo === 'gasto' && t.categoria === catId)
@@ -1369,7 +1378,9 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) 
   const barColor = (ejec) => ejec === null ? 'bg-stone-400' : ejec <= 80 ? 'bg-emerald-500' : ejec <= 100 ? 'bg-amber-500' : 'bg-red-500';
   const badgeColor = (ejec) => ejec === null ? 'bg-stone-100 text-stone-500' : ejec <= 80 ? 'bg-emerald-50 text-emerald-700' : ejec <= 100 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
 
-  const periodoLabel = filtro === 'mes' ? (meses[0]?.fullLabel || 'Mes actual') : filtro === '3m' ? '3 meses' : filtro === '6m' ? '6 meses' : 'Año';
+  const periodoLabel = mesesFiltro.length === 0 ? 'Todo el histórico'
+    : mesesSeleccionados.length === 1 ? mesesSeleccionados[0].label
+    : `${mesesSeleccionados.length} meses`;
 
   // ===== RESUMEN DEL MES ACTUAL (independiente del filtro de arriba) =====
   const resumenMes = useMemo(() => {
@@ -1441,25 +1452,32 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) 
         </div>
       </div>
 
-      {/* Filtro: período (un solo desplegable con todas las opciones) */}
-      <div className="flex items-center gap-2 mb-2.5">
-        <div className="relative">
-          <button onClick={() => setShowFiltros(!showFiltros)} style={{ backgroundColor: D.accentDot }}
-            className="py-2 px-4 rounded-xl text-xs font-medium text-white transition flex items-center gap-1.5">
-            {filtro === 'mes' ? (meses[0]?.fullLabel || 'Mes actual') : filtro === '3m' ? '3 meses' : filtro === '6m' ? '6 meses' : 'Año'}
-            <ChevronDown className={`w-3.5 h-3.5 transition ${showFiltros ? 'rotate-180' : ''}`} />
-          </button>
-          {showFiltros && (
-            <div className={`absolute top-full left-0 mt-1 rounded-xl shadow-lg border z-20 overflow-hidden ${D.bgCard} ${D.border}`}>
-              {[{id:'mes',l:meses[0]?.fullLabel || 'Mes actual'},{id:'3m',l:'3 meses'},{id:'6m',l:'6 meses'},{id:'year',l:'Año'}].map(f => (
-                <button key={f.id} onClick={() => { setFiltro(f.id); setSelectedCat(null); setShowFiltros(false); }}
-                  className={`block w-full text-left px-4 py-2.5 text-xs font-medium transition whitespace-nowrap ${filtro === f.id ? D.accentText + ' ' + D.bgMuted : D.text}`}>
-                  {f.l}
-                </button>
-              ))}
+      {/* Filtro: período (selección libre de meses, como categoría) */}
+      <div className="relative mb-2.5">
+        <button onClick={() => setShowFiltros(!showFiltros)} style={{ backgroundColor: D.accentDot }}
+          className="py-2 px-4 rounded-xl text-xs font-medium text-white transition flex items-center gap-1.5">
+          {periodoLabel}
+          <ChevronDown className={`w-3.5 h-3.5 transition ${showFiltros ? 'rotate-180' : ''}`} />
+        </button>
+        {showFiltros && (
+          <div className={`absolute top-full left-0 mt-1 w-56 max-h-72 overflow-y-auto rounded-xl shadow-lg border z-20 ${D.bgCard} ${D.border}`}>
+            <button onClick={() => { setMesesFiltro([]); setSelectedCat(null); }}
+              className={`block w-full text-left px-4 py-2 text-xs font-semibold border-b ${D.border} ${mesesFiltro.length === 0 ? D.accentText : D.textMuted}`}>
+              Todo el histórico
+            </button>
+            {todosLosMeses.map(m => (
+              <label key={m.key} className={`flex items-center gap-2 px-4 py-2 text-xs cursor-pointer whitespace-nowrap ${D.text}`}>
+                <input type="checkbox" checked={mesesFiltro.includes(m.key)}
+                  onChange={() => { toggleMesFiltro(m.key); setSelectedCat(null); }} className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>{m.label}</span>
+              </label>
+            ))}
+            <div className={`p-2 border-t ${D.border}`}>
+              <button onClick={() => setShowFiltros(false)} style={{ backgroundColor: D.accentDot }}
+                className="w-full py-1.5 rounded-lg text-xs font-medium text-white">Listo</button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Filtro: tipo de registro (una sola opción a la vez) */}
