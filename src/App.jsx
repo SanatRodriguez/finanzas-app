@@ -188,6 +188,17 @@ const mixHex = (hexAcento, hexBase, ratioAcento) => {
   return `#${[mix(ar, br), mix(ag, bg), mix(ab, bb)].map(v => v.toString(16).padStart(2, '0')).join('')}`;
 };
 
+// Construye un path SVG de línea a partir de una lista de valores, escalados a [0,h].
+const buildSparkPath = (vals, w, h, max) => {
+  if (vals.length === 0) return '';
+  const stepX = vals.length > 1 ? w / (vals.length - 1) : 0;
+  return 'M' + vals.map((v, i) => {
+    const x = i * stepX;
+    const y = max > 0 ? h - (Math.min(v, max) / max) * h : h;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' L');
+};
+
 const ajustarSiFinDeSemana = (fecha) => {
   const d = new Date(fecha);
   const dow = d.getDay();
@@ -619,7 +630,7 @@ export default function App() {
         )}
         {vista === 'analisis' && (
           online || transacciones.length > 0 ? (
-            <Analisis transacciones={transaccionesPresupuesto} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D}
+            <Analisis transacciones={transaccionesPresupuesto} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D} isDark={isDark}
               onEditar={(tx) => { setEditTx(tx); setShowFormCompleto(true); }} />
           ) : <OfflineMsg D={D} />
         )}
@@ -1293,7 +1304,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
 }
 
 // ============ ANÁLISIS ============
-function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) {
+function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEditar }) {
   const [tipoRegFiltro, setTipoRegFiltro] = useState('todos'); // 'todos' | 'real' | 'proyectado'
   const [catFiltros, setCatFiltros] = useState([]); // [] = todas las categorías
   const [mesesFiltro, setMesesFiltro] = useState(() => {
@@ -1332,6 +1343,24 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) 
   }, [transacciones, config]);
 
   const mesesSeleccionados = mesesFiltro.length === 0 ? todosLosMeses : todosLosMeses.filter(m => mesesFiltro.includes(m.key));
+
+  // Tendencia real vs presupuesto por categoría (últimos 6 meses del histórico,
+  // independiente de los filtros de arriba — necesita real Y proyectado siempre).
+  const sparklineMeses = useMemo(() => [...todosLosMeses].sort((a, b) => a.key.localeCompare(b.key)).slice(-6), [todosLosMeses]);
+  const sparklinePorCategoria = useMemo(() => {
+    const map = {};
+    sparklineMeses.forEach((m, i) => {
+      transacciones.forEach(t => {
+        if (t.tipo !== 'gasto' || !t.fecha) return;
+        const f = parseFechaLima(extraerFecha(t.fecha));
+        if (f < m.inicio || f > m.fin) return;
+        if (!map[t.categoria]) map[t.categoria] = sparklineMeses.map(() => ({ real: 0, proy: 0 }));
+        if (t.tipoRegistro === 'proyectado') map[t.categoria][i].proy += Number(t.monto);
+        else map[t.categoria][i].real += Number(t.monto);
+      });
+    });
+    return map;
+  }, [sparklineMeses, transacciones]);
 
   const allTxsPeriod = useMemo(() => {
     let txs = transacciones.filter(t => {
@@ -1526,6 +1555,8 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) 
         <div className="space-y-1.5">
           {categoriasMostradas.map(c => {
             const isZero = c.real === 0 && c.proy === 0;
+            const spark = sparklinePorCategoria[c.id];
+            const sparkMesesConDato = spark ? spark.filter(m => m.real > 0 || m.proy > 0).length : 0;
             return (
               <div key={c.id}>
                 <button onClick={() => { setExpandedCat(expandedCat === c.id ? null : c.id); setSelectedCat(selectedCat === c.id ? null : c.id); }}
@@ -1565,6 +1596,12 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) 
                         </div>
                       );
                     })}
+                    {sparkMesesConDato >= 2 && (
+                      <div className="pt-1">
+                        <p className={`text-[10px] uppercase tracking-widest mb-1 ${D.textMuted}`}>Tendencia — últimos {spark.length} meses</p>
+                        <Sparkline datos={spark} meses={sparklineMeses} color={c.color || '#8D99AE'} isDark={isDark} D={D} />
+                      </div>
+                    )}
                     <div className="pt-1">
                       <p className={`text-[10px] uppercase tracking-widest mb-1 ${D.textMuted}`}>Registros</p>
                       <div className="space-y-1">
@@ -1595,6 +1632,45 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, onEditar }) 
   );
 }
 
+// ============ SPARKLINE: REAL VS PRESUPUESTO ============
+// Mini gráfico decorativo (sin ejes, sin tooltip) — el dato exacto ya está en
+// texto arriba, esto solo da contexto de tendencia. Presupuesto = línea de
+// contexto (gris, punteada); Real = la serie que importa (color de la
+// categoría, sólida, con marcador en el último punto).
+function Sparkline({ datos, meses, color, isDark, D }) {
+  const w = 240, h = 32;
+  const max = Math.max(1, ...datos.flatMap(d => [d.real, d.proy]));
+  const realPath = buildSparkPath(datos.map(d => d.real), w, h, max);
+  const proyPath = buildSparkPath(datos.map(d => d.proy), w, h, max);
+  const stepX = datos.length > 1 ? w / (datos.length - 1) : 0;
+  const lastX = (datos.length - 1) * stepX;
+  const lastReal = datos[datos.length - 1]?.real || 0;
+  const lastY = max > 0 ? h - (Math.min(lastReal, max) / max) * h : h;
+  const grisLinea = isDark ? '#57534e' : '#d6d3d1';
+  const anillo = isDark ? '#1c1917' : '#ffffff';
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: h }} preserveAspectRatio="none">
+        <path d={proyPath} fill="none" stroke={grisLinea} strokeWidth="2" strokeDasharray="4 3" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={realPath} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={lastX} cy={lastY} r="5" fill={anillo} />
+        <circle cx={lastX} cy={lastY} r="4" fill={color} />
+      </svg>
+      <div className="flex items-center justify-between mt-1">
+        <div className="flex items-center gap-3">
+          <span className={`flex items-center gap-1 text-[9px] ${D.textMuted}`}>
+            <span className="w-2.5 h-0.5 rounded-full" style={{ backgroundColor: color }} />Real
+          </span>
+          <span className={`flex items-center gap-1 text-[9px] ${D.textMuted}`}>
+            <span className="w-2.5 h-0 border-t-2 border-dashed" style={{ borderColor: grisLinea }} />Presup.
+          </span>
+        </div>
+        <span className={`text-[9px] ${D.textMuted}`}>{meses[0]?.label.slice(0,3)} – {meses[meses.length-1]?.label.slice(0,3)}</span>
+      </div>
+    </div>
+  );
+}
 
 // ============ AHORRO ============
 function Ahorro({ transacciones, cuentasAhorro, saldos, total, config, D, onGuardar, onEliminar, onEditarGasto, onGuardarCuenta, onVolver }) {
