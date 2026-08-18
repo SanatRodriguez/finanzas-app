@@ -76,6 +76,10 @@ const DEFAULT_CONFIG = {
   // Categorías de gasto que Planificación trata como "se aparta primero"
   // (inversión, ahorro, etc.) — configurable, compartido entre los dos vía Sheet.
   categoriasApartadas: ['inversion', 'ahorro'],
+  // Categorías que YA representan el "gasto libre" de cada quien (montos que
+  // ustedes deciden manualmente) — Planificación las muestra directo en vez
+  // de inventar un reparto 50/50 automático.
+  categoriasGastoLibre: ['pago_libre_giuli', 'pago_libre_sanat'],
 };
 
 const PAISES_LATAM = [
@@ -393,6 +397,9 @@ export default function App() {
             if (settings.categoriasApartadas) {
               try { cfg.categoriasApartadas = JSON.parse(settings.categoriasApartadas); } catch {}
             }
+            if (settings.categoriasGastoLibre) {
+              try { cfg.categoriasGastoLibre = JSON.parse(settings.categoriasGastoLibre); } catch {}
+            }
             setConfig({...cfg});
             saveL(KEYS.CONFIG, cfg);
           } catch {}
@@ -541,6 +548,12 @@ export default function App() {
     if (scriptUrl && online) { try { await apiSaveSetting(scriptUrl, 'categoriasApartadas', JSON.stringify(ids)); } catch {} }
   };
 
+  const guardarCategoriasGastoLibre = async (ids) => {
+    const newCfg = { ...config, categoriasGastoLibre: ids };
+    setConfig(newCfg); saveL(KEYS.CONFIG, newCfg);
+    if (scriptUrl && online) { try { await apiSaveSetting(scriptUrl, 'categoriasGastoLibre', JSON.stringify(ids)); } catch {} }
+  };
+
   const navegarMes = (d) => { const n = new Date(fechaRef); n.setMonth(n.getMonth() + d); setFechaRef(n); };
 
   // ======== DATOS COMPUTADOS ========
@@ -640,6 +653,7 @@ export default function App() {
           online || transacciones.length > 0 ? (
             <Planificacion transacciones={transaccionesPresupuesto} catGasto={catGasto} config={config} D={D}
               onGuardarApartadas={guardarCategoriasApartadas}
+              onGuardarGastoLibre={guardarCategoriasGastoLibre}
               onVolver={() => setVista('analisis')} />
           ) : <OfflineMsg D={D} />
         )}
@@ -1790,17 +1804,23 @@ function GraficoTendencia({ datos, meses, config, D, isDark }) {
 // → lo que sobra ("gasto libre") se reparte 50/50. Usa siempre montos
 // PRESUPUESTADOS (proyectado) del mes elegido — es una calculadora de plan,
 // no un seguimiento de lo ya gastado (para eso está Análisis/Registros).
-function Planificacion({ transacciones, catGasto, config, D, onGuardarApartadas, onVolver }) {
+function Planificacion({ transacciones, catGasto, config, D, onGuardarApartadas, onGuardarGastoLibre, onVolver }) {
   const [fechaRef, setFechaRef] = useState(nowLocal());
   const [showApartadas, setShowApartadas] = useState(false);
+  const [showGastoLibre, setShowGastoLibre] = useState(false);
   const mesActual = useMemo(() => getRangoMesFinanciero(fechaRef, config.diaInicioMes, config.ajustarFinDeSemana), [fechaRef, config]);
   const navMes = (d) => { const n = new Date(fechaRef); n.setMonth(n.getMonth() + d); setFechaRef(n); };
 
   const apartadaIds = config.categoriasApartadas || [];
+  const gastoLibreIds = config.categoriasGastoLibre || [];
   const findCat = (id) => catGasto.find(c => c.id === id) || { emoji: '📦', nombre: id, color: '#8D99AE' };
   const toggleApartada = (id) => {
     const n = apartadaIds.includes(id) ? apartadaIds.filter(x => x !== id) : [...apartadaIds, id];
     onGuardarApartadas(n);
+  };
+  const toggleGastoLibre = (id) => {
+    const n = gastoLibreIds.includes(id) ? gastoLibreIds.filter(x => x !== id) : [...gastoLibreIds, id];
+    onGuardarGastoLibre(n);
   };
 
   const datos = useMemo(() => {
@@ -1814,18 +1834,29 @@ function Planificacion({ transacciones, catGasto, config, D, onGuardarApartadas,
     const porPersona = {};
     ingresos.forEach(t => { const p = t.persona || 'Sin nombre'; porPersona[p] = (porPersona[p] || 0) + Number(t.monto); });
     const apartadoPorCat = {};
-    let apartadoTotal = 0, gastosTotal = 0;
+    const gastoLibrePorCat = {};
+    let apartadoTotal = 0, gastosTotal = 0, gastoLibreTotal = 0;
     txsMes.filter(t => t.tipo === 'gasto').forEach(t => {
       if (apartadaIds.includes(t.categoria)) {
         apartadoPorCat[t.categoria] = (apartadoPorCat[t.categoria] || 0) + Number(t.monto);
         apartadoTotal += Number(t.monto);
+      } else if (gastoLibreIds.includes(t.categoria)) {
+        gastoLibrePorCat[t.categoria] = (gastoLibrePorCat[t.categoria] || 0) + Number(t.monto);
+        gastoLibreTotal += Number(t.monto);
       } else {
         gastosTotal += Number(t.monto);
       }
     });
-    const disponible = ingresoTotal - apartadoTotal - gastosTotal;
-    return { ingresoTotal, porPersona: Object.entries(porPersona), apartadoPorCat: Object.entries(apartadoPorCat), apartadoTotal, gastosTotal, disponible, libre: disponible / 2 };
-  }, [transacciones, mesActual, apartadaIds]);
+    // Diferencia = lo que sobra (o falta) del ingreso después de apartado + gastos +
+    // gasto libre ya presupuestado. Debería rondar 0 si el presupuesto está cuadrado.
+    const diferencia = ingresoTotal - apartadoTotal - gastosTotal - gastoLibreTotal;
+    return {
+      ingresoTotal, porPersona: Object.entries(porPersona),
+      apartadoPorCat: Object.entries(apartadoPorCat), apartadoTotal,
+      gastoLibrePorCat: Object.entries(gastoLibrePorCat), gastoLibreTotal,
+      gastosTotal, diferencia,
+    };
+  }, [transacciones, mesActual, apartadaIds, gastoLibreIds]);
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -1909,27 +1940,66 @@ function Planificacion({ transacciones, catGasto, config, D, onGuardarApartadas,
       <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
         <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>3. Gastos presupuestados</p>
         <div className="flex items-center justify-between">
-          <span className={`text-sm ${D.textSub}`}>Total (categorías que no se apartan)</span>
+          <span className={`text-sm ${D.textSub}`}>Total (sin apartadas ni gasto libre)</span>
           <span className={`text-sm font-semibold ${D.text}`}>{formatMonto(datos.gastosTotal, config.moneda)}</span>
         </div>
       </div>
 
-      {/* 4. Gasto libre */}
+      {/* 4. Gasto libre — lo que YA presupuestaron por persona, no un cálculo inventado */}
+      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
+        <div className="flex items-center justify-between mb-2">
+          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>4. Gasto libre</p>
+          <div className="relative">
+            <button onClick={() => setShowGastoLibre(!showGastoLibre)} className={`text-[10px] font-medium underline ${D.textMuted}`}>Editar categorías</button>
+            {showGastoLibre && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowGastoLibre(false)} />
+                <div className={`absolute top-full right-0 mt-1 w-56 max-h-72 overflow-y-auto rounded-xl shadow-lg border z-20 ${D.bgCard} ${D.border}`}>
+                  {catGasto.map(c => (
+                    <label key={c.id} className={`flex items-center gap-2 px-3 py-2 text-xs cursor-pointer ${D.text}`}>
+                      <input type="checkbox" checked={gastoLibreIds.includes(c.id)} onChange={() => toggleGastoLibre(c.id)} className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>{c.emoji} {c.nombre}</span>
+                    </label>
+                  ))}
+                  {catGasto.length === 0 && <p className={`px-3 py-2 text-xs ${D.textMuted}`}>Sin categorías de gasto todavía</p>}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+        {datos.gastoLibrePorCat.length === 0 ? (
+          <p className={`text-sm ${D.textMuted}`}>Elige las categorías donde ya presupuestan el gasto libre de cada quien</p>
+        ) : (
+          <div className="space-y-1">
+            {datos.gastoLibrePorCat.map(([catId, monto]) => (
+              <div key={catId} className="flex items-center justify-between">
+                <span className={`text-sm ${D.textSub}`}>{findCat(catId).emoji} {findCat(catId).nombre}</span>
+                <span className={`text-sm font-medium ${D.text}`}>{formatMonto(monto, config.moneda)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className={`flex items-center justify-between mt-2 pt-2 border-t ${D.border}`}>
+          <span className={`text-sm font-semibold ${D.text}`}>Total gasto libre</span>
+          <span className="font-serif text-lg font-bold" style={{ color: COLOR_PRESUPUESTADO }}>{formatMonto(datos.gastoLibreTotal, config.moneda)}</span>
+        </div>
+      </div>
+
+      {/* 5. Verificación: ¿el presupuesto cuadra? */}
       <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${D.bgHero} text-white p-5`}>
         <div className="absolute inset-0 grain opacity-30" />
         <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full blur-3xl" style={{ backgroundColor: D.accentDot + '33' }} />
         <div className="relative">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400">4. Disponible para gastar sin culpa (repartido 50/50)</p>
-          <div className="mt-2 font-serif text-4xl font-semibold">{formatMonto(datos.libre, config.moneda)}</div>
-          <p className="text-xs mt-1 text-white/70">por persona, este mes</p>
-          <div className="mt-3 flex items-center gap-3 text-sm">
-            <div><span className="text-stone-400 text-xs">Disponible total</span><div className="font-medium">{formatMonto(datos.disponible, config.moneda)}</div></div>
-          </div>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400">5. Sin asignar (ingreso − apartado − gastos − gasto libre)</p>
+          <div className="mt-2 font-serif text-4xl font-semibold">{formatMonto(datos.diferencia, config.moneda)}</div>
+          <p className="text-xs mt-1 text-white/70">
+            {Math.abs(datos.diferencia) < 1 ? '✓ El presupuesto cuadra' : datos.diferencia > 0 ? 'Dinero que aún no le asignaste a nada' : 'Estás presupuestando más de lo que ingresa'}
+          </p>
         </div>
       </div>
-      {datos.disponible < 0 && (
+      {datos.diferencia < -1 && (
         <div className="rounded-xl p-3 text-xs font-medium bg-red-50 text-red-700">
-          ⚠ Lo apartado + los gastos superan el ingreso presupuestado. Revisa las categorías apartadas o los gastos del mes.
+          ⚠ Lo apartado + los gastos + el gasto libre superan el ingreso presupuestado. Revisa las categorías o los montos del mes.
         </div>
       )}
     </div>
