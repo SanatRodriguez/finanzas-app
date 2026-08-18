@@ -253,7 +253,7 @@ const diffEnDias = (fechaA, fechaB) => {
 // ============ STORAGE LOCAL ============
 const KEYS = {
   TX_CACHE: 'fin:tx', CONFIG: 'fin:cfg', CAT_G: 'fin:cg', CAT_I: 'fin:ci', CAT_A: 'fin:ca',
-  SCRIPT_URL: 'fin:url', PENDING: 'fin:pending',
+  SCRIPT_URL: 'fin:url', PENDING: 'fin:pending', WIZARD_DONE: 'fin:wizard',
 };
 const loadL = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
 const saveL = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
@@ -324,9 +324,25 @@ export default function App() {
   const [showFormCompleto, setShowFormCompleto] = useState(false);
   const [filtroGlobal, setFiltroGlobal] = useState(null);
   const [editTx, setEditTx] = useState(null);
+  const [wizardVisto, setWizardVisto] = useState(true); // arranca true, se corrige tras cargar localStorage
+  // Ruta pública fija (ej. finanzas-app.vercel.app/bienvenida): siempre muestra
+  // el wizard/landing, sin importar si este dispositivo ya tiene la app
+  // configurada — para compartir en redes o para probarlo sin perder tu config.
+  const isLandingRoute = typeof window !== 'undefined' && window.location.pathname.replace(/\/$/, '') === '/bienvenida';
+  const [showWizard, setShowWizard] = useState(isLandingRoute);
+  const [installPrompt, setInstallPrompt] = useState(null);
   const online = useOnline();
 
   const showToast = (msg, tipo = 'success') => { setToast({ msg, tipo }); setTimeout(() => setToast(null), 2500); };
+
+  // Captura el evento de instalación de PWA (Android/Chrome/Edge) para poder
+  // ofrecer un botón "Instalar" real en el paso 5 del wizard, en vez de solo
+  // instrucciones manuales.
+  useEffect(() => {
+    const onPrompt = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', onPrompt);
+  }, []);
 
   // TEMA
   const sistemaOscuro = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
@@ -354,7 +370,10 @@ export default function App() {
   // ======== CARGAR DATOS ========
   useEffect(() => {
     // 1. Cargar cache local INMEDIATAMENTE — la app se ve al instante
-    const cfg = loadL(KEYS.CONFIG, DEFAULT_CONFIG);
+    // Se mezcla con DEFAULT_CONFIG (no solo se reemplaza) para que un campo
+    // nuevo que se agregue en una actualización futura no quede undefined
+    // para quienes ya tenían configuración guardada de antes.
+    const cfg = { ...DEFAULT_CONFIG, ...loadL(KEYS.CONFIG, {}) };
     const cg = loadL(KEYS.CAT_G, DEFAULT_CATEGORIAS_GASTO);
     const ci = loadL(KEYS.CAT_I, DEFAULT_CATEGORIAS_INGRESO);
     const ca = loadL(KEYS.CAT_A, DEFAULT_CATEGORIAS_AHORRO);
@@ -362,6 +381,9 @@ export default function App() {
     const cache = loadL(KEYS.TX_CACHE, []);
     APP_TZ = getTZ(cfg.pais || 'PE');
     setConfig(cfg); setCatGasto(cg); setCatIngreso(ci); setCatAhorro(ca); setScriptUrl(url); setTransacciones(cache);
+    const wizardDone = loadL(KEYS.WIZARD_DONE, false);
+    setWizardVisto(wizardDone);
+    setShowWizard(isLandingRoute || (!url && !wizardDone));
     setLoading(false); // ← la UI ya es usable, no esperamos al servidor
 
     // 2. Sincronizar con el servidor EN SEGUNDO PLANO
@@ -566,6 +588,18 @@ export default function App() {
     if (scriptUrl && online) { try { await apiSaveSetting(scriptUrl, 'categoriasGastosExcluidos', JSON.stringify(ids)); } catch {} }
   };
 
+  const cerrarWizard = () => {
+    // Si venían de la ruta pública fija, los mandamos a la app real (esa ruta
+    // siempre debe mostrar el wizard, así que quedarse ahí lo reabriría).
+    if (isLandingRoute) { window.location.href = '/'; return; }
+    setShowWizard(false); setWizardVisto(true); saveL(KEYS.WIZARD_DONE, true);
+    // Si conectaron el Sheet durante el wizard, la sincronización inicial de la
+    // app ya pasó (corrió al montar, antes de tener scriptUrl) — la disparamos
+    // ahora en vez de recargar la página a mitad del flujo.
+    if (scriptUrl) sincronizar();
+  };
+  const reabrirWizard = () => setShowWizard(true);
+
   const navegarMes = (d) => { const n = new Date(fechaRef); n.setMonth(n.getMonth() + d); setFechaRef(n); };
 
   // ======== DATOS COMPUTADOS ========
@@ -687,7 +721,7 @@ export default function App() {
             onExport={exportarCSV} totalTx={transacciones.length} scriptUrl={scriptUrl}
             setScriptUrl={(u) => { setScriptUrl(u); saveL(KEYS.SCRIPT_URL, u); }}
             transacciones={transacciones} onSincronizar={sincronizar} syncStatus={syncStatus} D={D} isDark={isDark}
-            online={online} />
+            online={online} onReabrirWizard={reabrirWizard} />
         )}
       </main>
 
@@ -727,6 +761,15 @@ export default function App() {
           onCerrar={() => { setShowFormCompleto(false); setEditTx(null); }} D={D} />
       )}
 
+      {/* ===== WIZARD DE BIENVENIDA ===== */}
+      {showWizard && (
+        <Wizard config={config} setConfig={(c) => { setConfig(c); saveL(KEYS.CONFIG, c); }}
+          scriptUrl={scriptUrl} setScriptUrl={(u) => { setScriptUrl(u); saveL(KEYS.SCRIPT_URL, u); }}
+          onGuardarCat={guardarCat} sugerGasto={CATEGORIAS_SUGERIDAS_GASTO} sugerIngreso={CATEGORIAS_SUGERIDAS_INGRESO}
+          paises={PAISES_LATAM} installPrompt={installPrompt} D={D} isDark={isDark}
+          onCerrar={cerrarWizard} />
+      )}
+
       {/* ===== TOAST ===== */}
       {toast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
@@ -735,6 +778,185 @@ export default function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ============ WIZARD DE BIENVENIDA ============
+// Se muestra automáticamente cuando no hay scriptUrl configurado y no se ha
+// cerrado antes (fin:wizard en localStorage). Reabrible desde Ajustes.
+// El paso "Conectar tu Sheet" NO depende de un endpoint 'ping' — usa
+// listSettings (ya existe en cualquier despliegue del Apps Script) para
+// probar la conexión, así no hace falta tocar el backend de nadie.
+const PASOS_WIZARD = ['Bienvenida', 'Tú', 'Conectar', 'Categorías', 'Instalar'];
+
+function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, sugerGasto, sugerIngreso, paises, installPrompt, D, isDark, onCerrar }) {
+  const [paso, setPaso] = useState(0);
+  const [tempUrl, setTempUrl] = useState(scriptUrl || '');
+  const [testStatus, setTestStatus] = useState('idle'); // idle | testing | ok | error
+  const [catsImportadas, setCatsImportadas] = useState(false);
+
+  const probarConexion = async () => {
+    if (!tempUrl.trim()) return;
+    setTestStatus('testing');
+    try {
+      await apiListSettings(tempUrl.trim());
+      setScriptUrl(tempUrl.trim());
+      setTestStatus('ok');
+    } catch {
+      setTestStatus('error');
+    }
+  };
+
+  const importarSugeridas = () => {
+    sugerGasto.forEach(c => onGuardarCat({ ...c, activo: true }, 'gasto'));
+    sugerIngreso.forEach(c => onGuardarCat({ ...c, activo: true }, 'ingreso'));
+    setCatsImportadas(true);
+  };
+
+  const instalarPWA = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch {}
+  };
+
+  const siguiente = () => setPaso(p => Math.min(p + 1, PASOS_WIZARD.length - 1));
+  const anterior = () => setPaso(p => Math.max(p - 1, 0));
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col" style={{ backgroundColor: D.bg }}>
+      {/* Progreso + cerrar */}
+      <div className="flex items-center gap-2 px-5 pt-5 pb-3">
+        <div className="flex-1 flex gap-1.5">
+          {PASOS_WIZARD.map((_, i) => (
+            <div key={i} className="flex-1 h-1 rounded-full overflow-hidden" style={{ backgroundColor: isDark ? '#3f3c39' : '#e7e5e4' }}>
+              <div className="h-full rounded-full transition-all" style={{ width: i <= paso ? '100%' : '0%', backgroundColor: D.accentDot }} />
+            </div>
+          ))}
+        </div>
+        <button onClick={onCerrar} className={`p-1.5 rounded-full ${D.bgCard}`}><X className={`w-5 h-5 ${D.text}`} /></button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 pb-6 flex flex-col">
+        {/* PASO 0: Bienvenida */}
+        {paso === 0 && (
+          <div className="flex-1 flex flex-col items-center justify-center text-center py-8">
+            <div className="text-5xl mb-4">💰</div>
+            <h1 className={`font-serif text-3xl font-semibold mb-2 ${D.text}`}>Finanzas<span style={{ color: D.accentDot }}>.</span></h1>
+            <p className={`text-sm mb-8 max-w-xs ${D.textSub}`}>Organiza tus gastos e ingresos — solo/a o en pareja — sin depender de un servidor ajeno.</p>
+            <div className="w-full max-w-xs space-y-2.5 text-left">
+              {[
+                { e: '🔒', t: 'Tus datos son tuyos', d: 'Todo vive en tu propio Google Sheet, no en un servidor de terceros.' },
+                { e: '👫', t: 'Para ti o en pareja', d: 'Registra por persona y compara, o úsala vos solo/a — se adapta en Ajustes.' },
+                { e: '📱', t: 'Funciona sin internet', d: 'Registra offline; se sincroniza cuando vuelves a conectarte.' },
+              ].map(f => (
+                <div key={f.t} className={`flex items-start gap-2.5 rounded-xl border p-3 ${D.bgCard} ${D.border}`}>
+                  <span className="text-lg">{f.e}</span>
+                  <div>
+                    <p className={`text-xs font-semibold ${D.text}`}>{f.t}</p>
+                    <p className={`text-[11px] ${D.textMuted}`}>{f.d}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* PASO 1: Nombre y país */}
+        {paso === 1 && (
+          <div className="flex-1 py-4">
+            <h2 className={`font-serif text-xl font-semibold mb-1 ${D.text}`}>¿Cómo te llamas?</h2>
+            <p className={`text-xs mb-4 ${D.textMuted}`}>Así identificamos tus registros si comparten el mismo Sheet.</p>
+            <input type="text" value={config.persona} onChange={e => setConfig({ ...config, persona: e.target.value })} placeholder="Tu nombre"
+              className={`w-full px-4 py-3 rounded-xl text-base border outline-none mb-6 ${D.bgInput} ${D.border} ${D.text}`} />
+            <h2 className={`font-serif text-xl font-semibold mb-1 ${D.text}`}>¿Desde qué país?</h2>
+            <p className={`text-xs mb-3 ${D.textMuted}`}>Ajustamos zona horaria y moneda automáticamente.</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(paises || []).map(p => (
+                <button key={p.code} onClick={() => { APP_TZ = p.tz; setConfig({ ...config, pais: p.code, moneda: p.moneda }); }}
+                  style={config.pais === p.code ? { borderColor: D.accentDot } : undefined}
+                  className={`p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${config.pais === p.code ? D.bgMuted : D.border + ' ' + D.bgCard}`}>
+                  <span className="text-lg">{p.emoji}</span><span className={`font-medium ${D.text}`}>{p.nombre}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* PASO 2: Conectar Google Sheet */}
+        {paso === 2 && (
+          <div className="flex-1 py-4">
+            <h2 className={`font-serif text-xl font-semibold mb-1 ${D.text}`}>Conecta tu Google Sheet</h2>
+            <p className={`text-xs mb-4 ${D.textMuted}`}>
+              Necesitas tu propia copia del Apps Script de Finanzas pegada en un Google Sheet.
+              {!scriptUrl && ' Si todavía no la tienes, es un paso único — pídele a quien te invitó que te ayude a prepararla.'}
+            </p>
+            <label className={`text-[10px] uppercase tracking-widest mb-1 block ${D.textMuted}`}>URL del Apps Script (termina en /exec)</label>
+            <input type="url" value={tempUrl} onChange={e => { setTempUrl(e.target.value); setTestStatus('idle'); }}
+              placeholder="https://script.google.com/macros/s/.../exec"
+              className={`w-full px-3 py-2.5 rounded-xl text-xs font-mono border outline-none mb-3 ${D.bgInput} ${D.border} ${D.text}`} />
+            <button onClick={probarConexion} disabled={!tempUrl.trim() || testStatus === 'testing'} style={{ backgroundColor: D.accentDot }}
+              className="w-full py-2.5 text-white rounded-xl text-sm font-medium disabled:opacity-30 transition active:scale-[0.98]">
+              {testStatus === 'testing' ? 'Probando...' : 'Probar conexión'}
+            </button>
+            {testStatus === 'ok' && <p className="text-xs mt-2 text-emerald-600 font-medium">✓ Conectado — ya puedes seguir</p>}
+            {testStatus === 'error' && <p className="text-xs mt-2 text-red-500 font-medium">No pudimos conectar. Revisa que la URL sea correcta y que el deployment esté publicado como "cualquier usuario".</p>}
+            <p className={`text-[11px] mt-4 ${D.textMuted}`}>¿Todavía no la tienes lista? Puedes seguir explorando la app sin conectar, y volver a este paso desde Ajustes cuando la tengas.</p>
+          </div>
+        )}
+
+        {/* PASO 3: Categorías sugeridas */}
+        {paso === 3 && (
+          <div className="flex-1 py-4">
+            <h2 className={`font-serif text-xl font-semibold mb-1 ${D.text}`}>Categorías para empezar</h2>
+            <p className={`text-xs mb-4 ${D.textMuted}`}>Importamos {sugerGasto.length} categorías de gasto y {sugerIngreso.length} de ingreso — las editas, agregas o borras cuando quieras desde Ajustes.</p>
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {[...sugerGasto, ...sugerIngreso].slice(0, 14).map(c => (
+                <span key={c.id} className={`px-2 py-1 rounded-full text-xs border ${D.bgCard} ${D.border} ${D.textSub}`}>{c.emoji} {c.nombre}</span>
+              ))}
+            </div>
+            <button onClick={importarSugeridas} disabled={catsImportadas} style={{ backgroundColor: D.accentDot }}
+              className="w-full py-2.5 text-white rounded-xl text-sm font-medium disabled:opacity-50 transition active:scale-[0.98]">
+              {catsImportadas ? '✓ Categorías importadas' : 'Importar categorías sugeridas'}
+            </button>
+          </div>
+        )}
+
+        {/* PASO 4: Instalar como PWA */}
+        {paso === 4 && (
+          <div className="flex-1 py-4">
+            <h2 className={`font-serif text-xl font-semibold mb-1 ${D.text}`}>Instálala en tu pantalla de inicio</h2>
+            <p className={`text-xs mb-4 ${D.textMuted}`}>Así abres Finanzas como cualquier otra app, sin buscar el link cada vez.</p>
+            {installPrompt ? (
+              <button onClick={instalarPWA} style={{ backgroundColor: D.accentDot }}
+                className="w-full py-2.5 text-white rounded-xl text-sm font-medium transition active:scale-[0.98]">
+                📲 Instalar app
+              </button>
+            ) : (
+              <div className={`rounded-xl border p-3 text-xs space-y-1.5 ${D.bgCard} ${D.border} ${D.textSub}`}>
+                <p><b>iPhone:</b> toca compartir (□↑) y luego "Agregar a pantalla de inicio".</p>
+                <p><b>Android / Chrome escritorio:</b> abre el menú (⋮) y elige "Instalar app".</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Navegación */}
+      <div className={`px-6 py-4 border-t flex gap-2 ${D.bgMuted} ${D.border}`}>
+        {paso > 0 && (
+          <button onClick={anterior} className={`px-4 py-3 rounded-xl text-sm font-medium border ${D.bgCard} ${D.border} ${D.textSub}`}>Atrás</button>
+        )}
+        {paso < PASOS_WIZARD.length - 1 ? (
+          <button onClick={siguiente} style={{ backgroundColor: D.accentDot }} className="flex-1 py-3 text-white rounded-xl text-sm font-semibold transition active:scale-[0.98]">
+            {paso === 0 ? 'Comenzar' : 'Continuar'}
+          </button>
+        ) : (
+          <button onClick={onCerrar} style={{ backgroundColor: D.accentDot }} className="flex-1 py-3 text-white rounded-xl text-sm font-semibold transition active:scale-[0.98]">
+            Empezar a usar Finanzas
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -2532,7 +2754,7 @@ function FormularioTx({ tx, catGasto, catIngreso, config, transacciones, onGuard
 
 // ============ CONFIG ============
 function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onEliminarCat,
-  onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark, paises, sugerGasto, sugerIngreso, online }) {
+  onExport, totalTx, scriptUrl, setScriptUrl, transacciones, onSincronizar, syncStatus, D, isDark, paises, sugerGasto, sugerIngreso, online, onReabrirWizard }) {
   const [showCats, setShowCats] = useState(null);
   const [nuevaCat, setNuevaCat] = useState({ nombre: '', emoji: '📦', color: '#8D99AE' });
   const [editandoCat, setEditandoCat] = useState(null);
@@ -2552,6 +2774,16 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
   return (
     <div className="space-y-4 animate-fade-in">
       <h1 className={`font-serif text-2xl font-semibold ${D.text}`}>Ajustes</h1>
+
+      <button onClick={onReabrirWizard}
+        className={`w-full rounded-2xl border p-3.5 flex items-center gap-2.5 text-left transition active:scale-[0.99] ${D.bgCard} ${D.border}`}>
+        <span className="text-xl">👋</span>
+        <div className="flex-1 min-w-0">
+          <p className={`text-sm font-medium ${D.text}`}>Guía de bienvenida</p>
+          <p className={`text-[11px] ${D.textMuted}`}>Vuelve a ver los pasos de configuración inicial</p>
+        </div>
+        <ChevronRight className={`w-4 h-4 flex-shrink-0 ${D.textMuted}`} />
+      </button>
 
       {/* Persona */}
       <Sec D={D} t="Tu nombre">
