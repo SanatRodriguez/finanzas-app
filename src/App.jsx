@@ -41,6 +41,9 @@ const CUENTA_AHORRO_PRINCIPAL_ID = 'principal';
 // Los gastos reales con esta categoría (los que ya registras en Registro Rápido /
 // presupuesto) alimentan automáticamente el saldo de la cuenta "principal".
 const CATEGORIA_GASTO_AHORRO_ID = 'ahorro';
+// Categoría de gasto que la vista "Planificación" trata como "lo que se aparta
+// primero" (inversión) — se resta antes de calcular el gasto libre.
+const CATEGORIA_GASTO_INVERSION_ID = 'inversion';
 const CUENTA_AHORRO_PRINCIPAL = {
   id: CUENTA_AHORRO_PRINCIPAL_ID, tipo: 'cuenta_ahorro', nombre: 'Ahorro General',
   emoji: '💰', color: '#FFD60A', orden: 0, activo: true,
@@ -631,7 +634,14 @@ export default function App() {
         {vista === 'analisis' && (
           online || transacciones.length > 0 ? (
             <Analisis transacciones={transaccionesPresupuesto} catGasto={catGasto} catIngreso={catIngreso} config={config} D={D} isDark={isDark}
-              onEditar={(tx) => { setEditTx(tx); setShowFormCompleto(true); }} />
+              onEditar={(tx) => { setEditTx(tx); setShowFormCompleto(true); }}
+              onVerPlanificacion={() => setVista('planificacion')} />
+          ) : <OfflineMsg D={D} />
+        )}
+        {vista === 'planificacion' && (
+          online || transacciones.length > 0 ? (
+            <Planificacion transacciones={transaccionesPresupuesto} config={config} D={D}
+              onVolver={() => setVista('analisis')} />
           ) : <OfflineMsg D={D} />
         )}
         {vista === 'ahorro' && (
@@ -1312,7 +1322,7 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
 }
 
 // ============ ANÁLISIS ============
-function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEditar }) {
+function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEditar, onVerPlanificacion }) {
   const [tipoRegFiltro, setTipoRegFiltro] = useState('todos'); // 'todos' | 'real' | 'proyectado'
   const [catFiltros, setCatFiltros] = useState([]); // [] = todas las categorías
   const [mesesFiltro, setMesesFiltro] = useState(() => {
@@ -1483,7 +1493,13 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEd
 
   return (
     <div className="animate-fade-in">
-      <h1 className={`font-serif text-2xl font-semibold mb-3 ${D.text}`}>Análisis</h1>
+      <div className="flex items-center justify-between mb-3">
+        <h1 className={`font-serif text-2xl font-semibold ${D.text}`}>Análisis</h1>
+        <button onClick={onVerPlanificacion} style={{ backgroundColor: D.accentDot }}
+          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full text-white transition active:scale-95">
+          🧮 Planificación
+        </button>
+      </div>
 
       {/* ===== RESUMEN DEL MES + COMPARTIR ===== */}
       <div className={`rounded-2xl border p-4 mb-4 ${D.bgCard} ${D.border}`}>
@@ -1735,6 +1751,110 @@ function Sparkline({ datos, meses, color, isDark, D }) {
         </div>
         <span className={`text-[9px] ${D.textMuted}`}>{meses[0]?.label.slice(0,3)} – {meses[meses.length-1]?.label.slice(0,3)}</span>
       </div>
+    </div>
+  );
+}
+
+// ============ PLANIFICACIÓN (calculadora de presupuesto en pareja) ============
+// Waterfall: Ingreso total del mes → se aparta Inversión → se restan los Gastos
+// → lo que sobra ("gasto libre") se reparte 50/50. Usa siempre montos
+// PRESUPUESTADOS (proyectado) del mes elegido — es una calculadora de plan,
+// no un seguimiento de lo ya gastado (para eso está Análisis/Registros).
+function Planificacion({ transacciones, config, D, onVolver }) {
+  const [fechaRef, setFechaRef] = useState(nowLocal());
+  const mesActual = useMemo(() => getRangoMesFinanciero(fechaRef, config.diaInicioMes, config.ajustarFinDeSemana), [fechaRef, config]);
+  const navMes = (d) => { const n = new Date(fechaRef); n.setMonth(n.getMonth() + d); setFechaRef(n); };
+
+  const datos = useMemo(() => {
+    const txsMes = transacciones.filter(t => {
+      if (!t.fecha || t.tipoRegistro !== 'proyectado') return false;
+      const f = parseFechaLima(extraerFecha(t.fecha));
+      return f >= mesActual.inicio && f <= mesActual.fin;
+    });
+    const ingresos = txsMes.filter(t => t.tipo === 'ingreso');
+    const ingresoTotal = ingresos.reduce((s, t) => s + Number(t.monto), 0);
+    const porPersona = {};
+    ingresos.forEach(t => { const p = t.persona || 'Sin nombre'; porPersona[p] = (porPersona[p] || 0) + Number(t.monto); });
+    const inversion = txsMes.filter(t => t.tipo === 'gasto' && t.categoria === CATEGORIA_GASTO_INVERSION_ID).reduce((s, t) => s + Number(t.monto), 0);
+    const gastos = txsMes.filter(t => t.tipo === 'gasto' && t.categoria !== CATEGORIA_GASTO_INVERSION_ID).reduce((s, t) => s + Number(t.monto), 0);
+    const disponible = ingresoTotal - inversion - gastos;
+    return { ingresoTotal, porPersona: Object.entries(porPersona), inversion, gastos, disponible, libre: disponible / 2 };
+  }, [transacciones, mesActual]);
+
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <button onClick={onVolver} className={`flex items-center gap-1 text-sm font-medium ${D.textMuted}`}>
+        <ChevronLeft className="w-4 h-4" /> Análisis
+      </button>
+      <h1 className={`font-serif text-2xl font-semibold ${D.text}`}>Planificación</h1>
+
+      {/* Nav mes */}
+      <div className={`flex items-center justify-between rounded-2xl border p-2.5 ${D.bgCard} ${D.border}`}>
+        <button onClick={() => navMes(-1)} className="p-1.5"><ChevronLeft className={`w-5 h-5 ${D.text}`} /></button>
+        <div className="text-center">
+          <div className={`font-serif text-base font-semibold ${D.text}`}>{NOMBRES_MES_LARGO[mesActual.inicio.getMonth()]} {mesActual.inicio.getFullYear()}</div>
+          <div className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>{formatFechaCorta(mesActual.inicio)} – {formatFechaCorta(mesActual.fin)}</div>
+        </div>
+        <button onClick={() => navMes(1)} className="p-1.5"><ChevronRight className={`w-5 h-5 ${D.text}`} /></button>
+      </div>
+
+      {/* 1. Ingresos */}
+      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
+        <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>1. Ingresos presupuestados del mes</p>
+        {datos.porPersona.length === 0 ? (
+          <p className={`text-sm ${D.textMuted}`}>Sin ingresos presupuestados este mes</p>
+        ) : (
+          <div className="space-y-1">
+            {datos.porPersona.map(([persona, monto]) => (
+              <div key={persona} className="flex items-center justify-between">
+                <span className={`text-sm ${D.textSub}`}>{persona}</span>
+                <span className={`text-sm font-medium ${D.text}`}>{formatMonto(monto, config.moneda)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className={`flex items-center justify-between mt-2 pt-2 border-t ${D.border}`}>
+          <span className={`text-sm font-semibold ${D.text}`}>Ingreso total del hogar</span>
+          <span className="font-serif text-lg font-bold text-emerald-600">{formatMonto(datos.ingresoTotal, config.moneda)}</span>
+        </div>
+      </div>
+
+      {/* 2. Inversión */}
+      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
+        <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>2. Inversión (se aparta primero)</p>
+        <div className="flex items-center justify-between">
+          <span className={`text-sm ${D.textSub}`}>Presupuestado en "Inversión"</span>
+          <span className={`text-sm font-semibold ${D.text}`}>{formatMonto(datos.inversion, config.moneda)}</span>
+        </div>
+      </div>
+
+      {/* 3. Gastos */}
+      <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
+        <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>3. Gastos presupuestados</p>
+        <div className="flex items-center justify-between">
+          <span className={`text-sm ${D.textSub}`}>Total (todas las categorías, sin Inversión)</span>
+          <span className={`text-sm font-semibold ${D.text}`}>{formatMonto(datos.gastos, config.moneda)}</span>
+        </div>
+      </div>
+
+      {/* 4. Gasto libre */}
+      <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${D.bgHero} text-white p-5`}>
+        <div className="absolute inset-0 grain opacity-30" />
+        <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full blur-3xl" style={{ backgroundColor: D.accentDot + '33' }} />
+        <div className="relative">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400">4. Disponible para gastar sin culpa (repartido 50/50)</p>
+          <div className="mt-2 font-serif text-4xl font-semibold">{formatMonto(datos.libre, config.moneda)}</div>
+          <p className="text-xs mt-1 text-white/70">por persona, este mes</p>
+          <div className="mt-3 flex items-center gap-3 text-sm">
+            <div><span className="text-stone-400 text-xs">Disponible total</span><div className="font-medium">{formatMonto(datos.disponible, config.moneda)}</div></div>
+          </div>
+        </div>
+      </div>
+      {datos.disponible < 0 && (
+        <div className="rounded-xl p-3 text-xs font-medium bg-red-50 text-red-700">
+          ⚠ La inversión + los gastos superan el ingreso presupuestado. Revisa el monto de inversión o los gastos del mes.
+        </div>
+      )}
     </div>
   );
 }
