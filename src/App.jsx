@@ -80,6 +80,9 @@ const DEFAULT_CONFIG = {
   // en la sección 3 (ej. pago libre personal de cada quien) — arrancan
   // destildadas por defecto, el resto de categorías de gasto sí se cuentan.
   categoriasGastosExcluidos: ['pago_libre_giuli', 'pago_libre_sanat'],
+  // true = uso en pareja (Planificación reparte el disponible 50/50);
+  // false = uso individual (todo el disponible es para una sola persona).
+  modoPareja: true,
 };
 
 const PAISES_LATAM = [
@@ -405,6 +408,9 @@ export default function App() {
             }
             if (settings.categoriasGastosExcluidos) {
               try { cfg.categoriasGastosExcluidos = JSON.parse(settings.categoriasGastosExcluidos); } catch {}
+            }
+            if (settings.modoPareja !== undefined && settings.modoPareja !== '') {
+              cfg.modoPareja = settings.modoPareja === 'true';
             }
             setConfig({...cfg});
             saveL(KEYS.CONFIG, cfg);
@@ -1925,9 +1931,9 @@ function Planificacion({ transacciones, catGasto, config, D, onGuardarApartadas,
       ingresoTotal, porPersona: Object.entries(porPersona),
       apartadoPorCat: Object.entries(apartadoPorCat), apartadoTotal,
       gastoPorCat: Object.entries(gastoPorCat).sort((a, b) => b[1] - a[1]), gastosTotal,
-      disponible, libre: disponible / 2,
+      disponible, libre: config.modoPareja ? disponible / 2 : disponible,
     };
-  }, [transacciones, mesActual, apartadaIds, gastosExcluidosIds]);
+  }, [transacciones, mesActual, apartadaIds, gastosExcluidosIds, config.modoPareja]);
 
   // Categorías de gasto disponibles para el picker de la sección 3 (todo lo
   // que no esté ya apartado — no tendría sentido tildarlo/destildarlo ahí).
@@ -2062,12 +2068,14 @@ function Planificacion({ transacciones, catGasto, config, D, onGuardarApartadas,
         <div className="absolute inset-0 grain opacity-30" />
         <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full blur-3xl" style={{ backgroundColor: D.accentDot + '33' }} />
         <div className="relative">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400">4. Disponible para gastar sin culpa (repartido 50/50)</p>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400">4. Disponible para gastar sin culpa{config.modoPareja ? ' (repartido 50/50)' : ''}</p>
           <div className="mt-2 font-serif text-4xl font-semibold">{formatMonto(datos.libre, config.moneda)}</div>
-          <p className="text-xs mt-1 text-white/70">por persona, este mes</p>
-          <div className="mt-3 flex items-center gap-3 text-sm">
-            <div><span className="text-stone-400 text-xs">Disponible total</span><div className="font-medium">{formatMonto(datos.disponible, config.moneda)}</div></div>
-          </div>
+          <p className="text-xs mt-1 text-white/70">{config.modoPareja ? 'por persona, este mes' : 'para ti, este mes'}</p>
+          {config.modoPareja && (
+            <div className="mt-3 flex items-center gap-3 text-sm">
+              <div><span className="text-stone-400 text-xs">Disponible total</span><div className="font-medium">{formatMonto(datos.disponible, config.moneda)}</div></div>
+            </div>
+          )}
         </div>
       </div>
       {datos.disponible < 0 && (
@@ -2598,6 +2606,24 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
           )}
         </div>
         <p className={`text-[11px] mt-2 ${D.textMuted}`}>La zona horaria y moneda se ajustan según tu país.</p>
+      </Sec>
+
+      {/* Modo de uso — afecta cómo Planificación reparte el disponible */}
+      <Sec D={D} t="Modo de uso">
+        <div className="grid grid-cols-2 gap-2">
+          {[{id: true, e: '👫', l: 'En pareja'}, {id: false, e: '🧍', l: 'Solo/a'}].map(m => (
+            <button key={String(m.id)} onClick={async () => {
+                const newCfg = { ...config, modoPareja: m.id };
+                setConfig(newCfg); saveL(KEYS.CONFIG, newCfg);
+                if (scriptUrl && online) { try { await apiSaveSetting(scriptUrl, 'modoPareja', String(m.id)); } catch {} }
+              }}
+              style={config.modoPareja === m.id ? { borderColor: D.accentDot } : undefined}
+              className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition ${config.modoPareja === m.id ? D.bgMuted : D.border + ' ' + D.bgCard}`}>
+              <span className="text-xl">{m.e}</span><span className={`text-[11px] font-medium ${D.textSub}`}>{m.l}</span>
+            </button>
+          ))}
+        </div>
+        <p className={`text-[11px] mt-2 ${D.textMuted}`}>En "Solo/a", Planificación ya no divide el disponible entre dos.</p>
       </Sec>
 
       {/* Apariencia */}
