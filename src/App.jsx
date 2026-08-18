@@ -1881,6 +1881,7 @@ function Planificacion({ transacciones, catGasto, config, D, onGuardarApartadas,
   const [fechaRef, setFechaRef] = useState(nowLocal());
   const [showApartadas, setShowApartadas] = useState(false);
   const [showGastos, setShowGastos] = useState(false);
+  const [expandirGastos, setExpandirGastos] = useState(false);
   const mesActual = useMemo(() => getRangoMesFinanciero(fechaRef, config.diaInicioMes, config.ajustarFinDeSemana), [fechaRef, config]);
   const navMes = (d) => { const n = new Date(fechaRef); n.setMonth(n.getMonth() + d); setFechaRef(n); };
 
@@ -1923,7 +1924,7 @@ function Planificacion({ transacciones, catGasto, config, D, onGuardarApartadas,
     return {
       ingresoTotal, porPersona: Object.entries(porPersona),
       apartadoPorCat: Object.entries(apartadoPorCat), apartadoTotal,
-      gastoPorCat: Object.entries(gastoPorCat), gastosTotal,
+      gastoPorCat: Object.entries(gastoPorCat).sort((a, b) => b[1] - a[1]), gastosTotal,
       disponible, libre: disponible / 2,
     };
   }, [transacciones, mesActual, apartadaIds, gastosExcluidosIds]);
@@ -2033,22 +2034,27 @@ function Planificacion({ transacciones, catGasto, config, D, onGuardarApartadas,
             )}
           </div>
         </div>
-        {datos.gastoPorCat.length === 0 ? (
-          <p className={`text-sm ${D.textMuted}`}>Sin gastos presupuestados este mes</p>
-        ) : (
-          <div className="space-y-1">
-            {datos.gastoPorCat.map(([catId, monto]) => (
-              <div key={catId} className="flex items-center justify-between">
-                <span className={`text-sm ${D.textSub}`}>{findCat(catId).emoji} {findCat(catId).nombre}</span>
-                <span className={`text-sm font-medium ${D.text}`}>{formatMonto(monto, config.moneda)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className={`flex items-center justify-between mt-2 pt-2 border-t ${D.border}`}>
-          <span className={`text-sm font-semibold ${D.text}`}>Total gastos</span>
+        <button onClick={() => setExpandirGastos(!expandirGastos)} className="w-full flex items-center justify-between">
+          <span className={`flex items-center gap-1 text-sm font-semibold ${D.text}`}>
+            Total gastos
+            <ChevronDown className={`w-3.5 h-3.5 transition ${D.textMuted} ${expandirGastos ? 'rotate-180' : ''}`} />
+          </span>
           <span className={`font-serif text-lg font-bold ${D.text}`}>{formatMonto(datos.gastosTotal, config.moneda)}</span>
-        </div>
+        </button>
+        {expandirGastos && (
+          datos.gastoPorCat.length === 0 ? (
+            <p className={`text-sm mt-2 ${D.textMuted}`}>Sin gastos presupuestados este mes</p>
+          ) : (
+            <div className={`space-y-1 mt-2 pt-2 border-t ${D.border}`}>
+              {datos.gastoPorCat.map(([catId, monto]) => (
+                <div key={catId} className="flex items-center justify-between">
+                  <span className={`text-sm ${D.textSub}`}>{findCat(catId).emoji} {findCat(catId).nombre}</span>
+                  <span className={`text-sm font-medium ${D.text}`}>{formatMonto(monto, config.moneda)}</span>
+                </div>
+              ))}
+            </div>
+          )
+        )}
       </div>
 
       {/* 4. Gasto libre — lo que sobra, repartido 50/50 */}
