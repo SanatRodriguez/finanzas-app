@@ -41,9 +41,6 @@ const CUENTA_AHORRO_PRINCIPAL_ID = 'principal';
 // Los gastos reales con esta categoría (los que ya registras en Registro Rápido /
 // presupuesto) alimentan automáticamente el saldo de la cuenta "principal".
 const CATEGORIA_GASTO_AHORRO_ID = 'ahorro';
-// Categoría de gasto que la vista "Planificación" trata como "lo que se aparta
-// primero" (inversión) — se resta antes de calcular el gasto libre.
-const CATEGORIA_GASTO_INVERSION_ID = 'inversion';
 const CUENTA_AHORRO_PRINCIPAL = {
   id: CUENTA_AHORRO_PRINCIPAL_ID, tipo: 'cuenta_ahorro', nombre: 'Ahorro General',
   emoji: '💰', color: '#FFD60A', orden: 0, activo: true,
@@ -76,6 +73,9 @@ const DEFAULT_CONFIG = {
   tema: 'claro',
   acento: 'amber',
   pais: 'PE',
+  // Categorías de gasto que Planificación trata como "se aparta primero"
+  // (inversión, ahorro, etc.) — configurable, compartido entre los dos vía Sheet.
+  categoriasApartadas: ['inversion', 'ahorro'],
 };
 
 const PAISES_LATAM = [
@@ -399,10 +399,13 @@ export default function App() {
                 cfg.pais = paisData.code;
                 cfg.moneda = paisData.moneda;
                 APP_TZ = paisData.tz;
-                setConfig({...cfg});
-                saveL(KEYS.CONFIG, cfg);
               }
             }
+            if (settings.categoriasApartadas) {
+              try { cfg.categoriasApartadas = JSON.parse(settings.categoriasApartadas); } catch {}
+            }
+            setConfig({...cfg});
+            saveL(KEYS.CONFIG, cfg);
           } catch {}
           setSyncStatus('idle');
         } catch { setSyncStatus('error'); }
@@ -543,6 +546,12 @@ export default function App() {
     if (scriptUrl && online) { try { await apiDeleteCat(scriptUrl, id); } catch {} }
   };
 
+  const guardarCategoriasApartadas = async (ids) => {
+    const newCfg = { ...config, categoriasApartadas: ids };
+    setConfig(newCfg); saveL(KEYS.CONFIG, newCfg);
+    if (scriptUrl && online) { try { await apiSaveSetting(scriptUrl, 'categoriasApartadas', JSON.stringify(ids)); } catch {} }
+  };
+
   const navegarMes = (d) => { const n = new Date(fechaRef); n.setMonth(n.getMonth() + d); setFechaRef(n); };
 
   // ======== DATOS COMPUTADOS ========
@@ -640,7 +649,8 @@ export default function App() {
         )}
         {vista === 'planificacion' && (
           online || transacciones.length > 0 ? (
-            <Planificacion transacciones={transaccionesPresupuesto} config={config} D={D}
+            <Planificacion transacciones={transaccionesPresupuesto} catGasto={catGasto} config={config} D={D}
+              onGuardarApartadas={guardarCategoriasApartadas}
               onVolver={() => setVista('analisis')} />
           ) : <OfflineMsg D={D} />
         )}
@@ -1760,10 +1770,18 @@ function Sparkline({ datos, meses, color, isDark, D }) {
 // → lo que sobra ("gasto libre") se reparte 50/50. Usa siempre montos
 // PRESUPUESTADOS (proyectado) del mes elegido — es una calculadora de plan,
 // no un seguimiento de lo ya gastado (para eso está Análisis/Registros).
-function Planificacion({ transacciones, config, D, onVolver }) {
+function Planificacion({ transacciones, catGasto, config, D, onGuardarApartadas, onVolver }) {
   const [fechaRef, setFechaRef] = useState(nowLocal());
+  const [showApartadas, setShowApartadas] = useState(false);
   const mesActual = useMemo(() => getRangoMesFinanciero(fechaRef, config.diaInicioMes, config.ajustarFinDeSemana), [fechaRef, config]);
   const navMes = (d) => { const n = new Date(fechaRef); n.setMonth(n.getMonth() + d); setFechaRef(n); };
+
+  const apartadaIds = config.categoriasApartadas || [];
+  const findCat = (id) => catGasto.find(c => c.id === id) || { emoji: '📦', nombre: id, color: '#8D99AE' };
+  const toggleApartada = (id) => {
+    const n = apartadaIds.includes(id) ? apartadaIds.filter(x => x !== id) : [...apartadaIds, id];
+    onGuardarApartadas(n);
+  };
 
   const datos = useMemo(() => {
     const txsMes = transacciones.filter(t => {
@@ -1775,11 +1793,19 @@ function Planificacion({ transacciones, config, D, onVolver }) {
     const ingresoTotal = ingresos.reduce((s, t) => s + Number(t.monto), 0);
     const porPersona = {};
     ingresos.forEach(t => { const p = t.persona || 'Sin nombre'; porPersona[p] = (porPersona[p] || 0) + Number(t.monto); });
-    const inversion = txsMes.filter(t => t.tipo === 'gasto' && t.categoria === CATEGORIA_GASTO_INVERSION_ID).reduce((s, t) => s + Number(t.monto), 0);
-    const gastos = txsMes.filter(t => t.tipo === 'gasto' && t.categoria !== CATEGORIA_GASTO_INVERSION_ID).reduce((s, t) => s + Number(t.monto), 0);
-    const disponible = ingresoTotal - inversion - gastos;
-    return { ingresoTotal, porPersona: Object.entries(porPersona), inversion, gastos, disponible, libre: disponible / 2 };
-  }, [transacciones, mesActual]);
+    const apartadoPorCat = {};
+    let apartadoTotal = 0, gastosTotal = 0;
+    txsMes.filter(t => t.tipo === 'gasto').forEach(t => {
+      if (apartadaIds.includes(t.categoria)) {
+        apartadoPorCat[t.categoria] = (apartadoPorCat[t.categoria] || 0) + Number(t.monto);
+        apartadoTotal += Number(t.monto);
+      } else {
+        gastosTotal += Number(t.monto);
+      }
+    });
+    const disponible = ingresoTotal - apartadoTotal - gastosTotal;
+    return { ingresoTotal, porPersona: Object.entries(porPersona), apartadoPorCat: Object.entries(apartadoPorCat), apartadoTotal, gastosTotal, disponible, libre: disponible / 2 };
+  }, [transacciones, mesActual, apartadaIds]);
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -1819,12 +1845,43 @@ function Planificacion({ transacciones, config, D, onVolver }) {
         </div>
       </div>
 
-      {/* 2. Inversión */}
+      {/* 2. Se aparta primero (inversión, ahorro, u otras categorías que elijas) */}
       <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
-        <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>2. Inversión (se aparta primero)</p>
-        <div className="flex items-center justify-between">
-          <span className={`text-sm ${D.textSub}`}>Presupuestado en "Inversión"</span>
-          <span className={`text-sm font-semibold ${D.text}`}>{formatMonto(datos.inversion, config.moneda)}</span>
+        <div className="flex items-center justify-between mb-2">
+          <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>2. Se aparta primero</p>
+          <div className="relative">
+            <button onClick={() => setShowApartadas(!showApartadas)} className={`text-[10px] font-medium underline ${D.textMuted}`}>Editar categorías</button>
+            {showApartadas && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowApartadas(false)} />
+                <div className={`absolute top-full right-0 mt-1 w-56 max-h-72 overflow-y-auto rounded-xl shadow-lg border z-20 ${D.bgCard} ${D.border}`}>
+                  {catGasto.map(c => (
+                    <label key={c.id} className={`flex items-center gap-2 px-3 py-2 text-xs cursor-pointer ${D.text}`}>
+                      <input type="checkbox" checked={apartadaIds.includes(c.id)} onChange={() => toggleApartada(c.id)} className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>{c.emoji} {c.nombre}</span>
+                    </label>
+                  ))}
+                  {catGasto.length === 0 && <p className={`px-3 py-2 text-xs ${D.textMuted}`}>Sin categorías de gasto todavía</p>}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+        {datos.apartadoPorCat.length === 0 ? (
+          <p className={`text-sm ${D.textMuted}`}>Elige qué categorías se apartan primero (ej. Ahorro, Inversión)</p>
+        ) : (
+          <div className="space-y-1">
+            {datos.apartadoPorCat.map(([catId, monto]) => (
+              <div key={catId} className="flex items-center justify-between">
+                <span className={`text-sm ${D.textSub}`}>{findCat(catId).emoji} {findCat(catId).nombre}</span>
+                <span className={`text-sm font-medium ${D.text}`}>{formatMonto(monto, config.moneda)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className={`flex items-center justify-between mt-2 pt-2 border-t ${D.border}`}>
+          <span className={`text-sm font-semibold ${D.text}`}>Total apartado</span>
+          <span className="font-serif text-lg font-bold text-amber-600">{formatMonto(datos.apartadoTotal, config.moneda)}</span>
         </div>
       </div>
 
@@ -1832,8 +1889,8 @@ function Planificacion({ transacciones, config, D, onVolver }) {
       <div className={`rounded-2xl border p-4 ${D.bgCard} ${D.border}`}>
         <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>3. Gastos presupuestados</p>
         <div className="flex items-center justify-between">
-          <span className={`text-sm ${D.textSub}`}>Total (todas las categorías, sin Inversión)</span>
-          <span className={`text-sm font-semibold ${D.text}`}>{formatMonto(datos.gastos, config.moneda)}</span>
+          <span className={`text-sm ${D.textSub}`}>Total (categorías que no se apartan)</span>
+          <span className={`text-sm font-semibold ${D.text}`}>{formatMonto(datos.gastosTotal, config.moneda)}</span>
         </div>
       </div>
 
@@ -1852,7 +1909,7 @@ function Planificacion({ transacciones, config, D, onVolver }) {
       </div>
       {datos.disponible < 0 && (
         <div className="rounded-xl p-3 text-xs font-medium bg-red-50 text-red-700">
-          ⚠ La inversión + los gastos superan el ingreso presupuestado. Revisa el monto de inversión o los gastos del mes.
+          ⚠ Lo apartado + los gastos superan el ingreso presupuestado. Revisa las categorías apartadas o los gastos del mes.
         </div>
       )}
     </div>
