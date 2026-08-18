@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Wallet, TrendingUp, TrendingDown, Plus, Trash2, Calendar,
-  PieChart, BarChart3, Settings, ChevronLeft, ChevronRight, ChevronDown,
-  Download, Upload, X, Check, AlertCircle, Repeat, Zap, WifiOff, RefreshCw
+  PieChart, BarChart3, Settings, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
+  Download, Upload, X, Check, AlertCircle, Repeat, Zap, WifiOff, RefreshCw, Pencil
 } from 'lucide-react';
 
 // ============ CATEGORÍAS POR DEFECTO ============
@@ -1202,6 +1202,9 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
     });
   };
 
+  const todoColapsado = grupos.length > 0 && grupos.every(g => colapsados.has(g.key));
+  const toggleTodos = () => setColapsados(todoColapsado ? new Set() : new Set(grupos.map(g => g.key)));
+
   const renderTx = (tx) => {
     const c = findCat(tx.tipo, tx.categoria);
     const f = parseFechaLima(tx.fecha);
@@ -1255,6 +1258,11 @@ function Registro({ transacciones, catGasto, catIngreso, config, D, mesActual, o
         </div>
       ) : (
         <div className="space-y-3">
+          <div className="flex justify-end">
+            <button onClick={toggleTodos} className={`text-xs font-medium underline ${D.textMuted}`}>
+              {todoColapsado ? 'Expandir todos los días' : 'Contraer todos los días'}
+            </button>
+          </div>
           {grupos.map(g => {
             const abierto = !colapsados.has(g.key);
             const fechaLabel = formatFecha(parseFechaLima(g.key));
@@ -1346,7 +1354,12 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEd
 
   // Tendencia real vs presupuesto por categoría (últimos 6 meses del histórico,
   // independiente de los filtros de arriba — necesita real Y proyectado siempre).
-  const sparklineMeses = useMemo(() => [...todosLosMeses].sort((a, b) => a.key.localeCompare(b.key)).slice(-6), [todosLosMeses]);
+  const sparklineMeses = useMemo(() => {
+    const hoy = nowLocal();
+    // Solo meses hasta el actual — si no, los presupuestos recurrentes que ya
+    // están agendados a futuro "ganan" el slice(-6) y la tendencia sale vacía.
+    return [...todosLosMeses].filter(m => m.inicio <= hoy).sort((a, b) => a.key.localeCompare(b.key)).slice(-6);
+  }, [todosLosMeses]);
   const sparklinePorCategoria = useMemo(() => {
     const map = {};
     sparklineMeses.forEach((m, i) => {
@@ -1410,6 +1423,23 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEd
   const periodoLabel = mesesFiltro.length === 0 ? 'Todo el histórico'
     : mesesSeleccionados.length === 1 ? mesesSeleccionados[0].label
     : `${mesesSeleccionados.length} meses`;
+
+  const hayFiltrosActivos = tipoRegFiltro !== 'todos' || catFiltros.length > 0 || mesesFiltro.length > 0;
+  const limpiarFiltros = () => {
+    setTipoRegFiltro('todos'); setCatFiltros([]); setMesesFiltro([]); setSelectedCat(null); setExpandedCat(null);
+  };
+
+  // Totales del período/tipo/categoría filtrados — ingresos siempre del período completo
+  // (no hay filtro de categoría de ingreso en esta pantalla); gastos respeta catFiltros.
+  const totalesFiltrados = useMemo(() => {
+    const gastoTxs = allTxsPeriod.filter(t => t.tipo === 'gasto' && (catFiltros.length === 0 || catFiltros.includes(t.categoria)));
+    const ingresoTxs = allTxsPeriod.filter(t => t.tipo === 'ingreso');
+    const ip = ingresoTxs.filter(t => t.tipoRegistro === 'proyectado').reduce((s, t) => s + Number(t.monto), 0);
+    const ir = ingresoTxs.filter(t => t.tipoRegistro === 'real').reduce((s, t) => s + Number(t.monto), 0);
+    const gp = gastoTxs.filter(t => t.tipoRegistro === 'proyectado').reduce((s, t) => s + Number(t.monto), 0);
+    const gr = gastoTxs.filter(t => t.tipoRegistro === 'real').reduce((s, t) => s + Number(t.monto), 0);
+    return { ingresoProy: ip, ingresoReal: ir, gastoProy: gp, gastoReal: gr, balanceReal: ir - gr, balanceProy: ip - gp };
+  }, [allTxsPeriod, catFiltros]);
 
   // ===== RESUMEN DEL MES ACTUAL (independiente del filtro de arriba) =====
   const resumenMes = useMemo(() => {
@@ -1481,31 +1511,38 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEd
         </div>
       </div>
 
-      {/* Filtro: período (selección libre de meses, como categoría) */}
-      <div className="relative mb-2.5">
-        <button onClick={() => setShowFiltros(!showFiltros)} style={{ backgroundColor: D.accentDot }}
-          className="py-2 px-4 rounded-xl text-xs font-medium text-white transition flex items-center gap-1.5">
-          {periodoLabel}
-          <ChevronDown className={`w-3.5 h-3.5 transition ${showFiltros ? 'rotate-180' : ''}`} />
-        </button>
-        {showFiltros && (
-          <div className={`absolute top-full left-0 mt-1 w-56 max-h-72 overflow-y-auto rounded-xl shadow-lg border z-20 ${D.bgCard} ${D.border}`}>
-            <button onClick={() => { setMesesFiltro([]); setSelectedCat(null); }}
-              className={`block w-full text-left px-4 py-2 text-xs font-semibold border-b ${D.border} ${mesesFiltro.length === 0 ? D.accentText : D.textMuted}`}>
-              Todo el histórico
-            </button>
-            {todosLosMeses.map(m => (
-              <label key={m.key} className={`flex items-center gap-2 px-4 py-2 text-xs cursor-pointer whitespace-nowrap ${D.text}`}>
-                <input type="checkbox" checked={mesesFiltro.includes(m.key)}
-                  onChange={() => { toggleMesFiltro(m.key); setSelectedCat(null); }} className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>{m.label}</span>
-              </label>
-            ))}
-            <div className={`p-2 border-t ${D.border}`}>
-              <button onClick={() => setShowFiltros(false)} style={{ backgroundColor: D.accentDot }}
-                className="w-full py-1.5 rounded-lg text-xs font-medium text-white">Listo</button>
-            </div>
-          </div>
+      {/* Filtros */}
+      <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+        {/* Filtro: período (selección libre de meses, como categoría) */}
+        <div className="relative">
+          <button onClick={() => setShowFiltros(!showFiltros)} style={{ backgroundColor: D.accentDot }}
+            className="py-2 px-4 rounded-xl text-xs font-medium text-white transition flex items-center gap-1.5">
+            {periodoLabel}
+            <ChevronDown className={`w-3.5 h-3.5 transition ${showFiltros ? 'rotate-180' : ''}`} />
+          </button>
+          {showFiltros && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setShowFiltros(false)} />
+              <div className={`absolute top-full left-0 mt-1 w-56 max-h-72 overflow-y-auto rounded-xl shadow-lg border z-20 ${D.bgCard} ${D.border}`}>
+                <button onClick={() => { setMesesFiltro([]); setSelectedCat(null); }}
+                  className={`block w-full text-left px-4 py-2 text-xs font-semibold border-b ${D.border} ${mesesFiltro.length === 0 ? D.accentText : D.textMuted}`}>
+                  Todo el histórico
+                </button>
+                {todosLosMeses.map(m => (
+                  <label key={m.key} className={`flex items-center gap-2 px-4 py-2 text-xs cursor-pointer whitespace-nowrap ${D.text}`}>
+                    <input type="checkbox" checked={mesesFiltro.includes(m.key)}
+                      onChange={() => { toggleMesFiltro(m.key); setSelectedCat(null); }} className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span>{m.label}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        {hayFiltrosActivos && (
+          <button onClick={limpiarFiltros} className={`text-xs font-medium underline ${D.textMuted}`}>
+            Limpiar filtros
+          </button>
         )}
       </div>
 
@@ -1520,7 +1557,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEd
       </div>
 
       {/* Filtro: categoría (varias a la vez, en desplegable para no saturar la pantalla) */}
-      <div className="relative mb-4">
+      <div className="relative mb-3">
         <button onClick={() => setShowCatFiltro(!showCatFiltro)}
           style={catFiltros.length > 0 ? { backgroundColor: D.accentDot } : undefined}
           className={`py-2 px-4 rounded-xl text-xs font-medium transition flex items-center gap-1.5 border ${catFiltros.length > 0 ? 'text-white border-transparent' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
@@ -1528,21 +1565,51 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEd
           <ChevronDown className={`w-3.5 h-3.5 transition ${showCatFiltro ? 'rotate-180' : ''}`} />
         </button>
         {showCatFiltro && (
-          <div className={`absolute top-full left-0 mt-1 w-64 max-h-72 overflow-y-auto rounded-xl shadow-lg border z-20 ${D.bgCard} ${D.border}`}>
-            <button onClick={() => setCatFiltros([])}
-              className={`block w-full text-left px-4 py-2 text-xs font-semibold border-b ${D.border} ${catFiltros.length === 0 ? D.accentText : D.textMuted}`}>
-              Todas
-            </button>
-            {catGasto.map(c => (
-              <label key={c.id} className={`flex items-center gap-2 px-4 py-2 text-xs cursor-pointer ${D.text}`}>
-                <input type="checkbox" checked={catFiltros.includes(c.id)} onChange={() => toggleCatFiltro(c.id)} className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>{c.emoji} {c.nombre}</span>
-              </label>
-            ))}
-            <div className={`p-2 border-t ${D.border}`}>
-              <button onClick={() => setShowCatFiltro(false)} style={{ backgroundColor: D.accentDot }}
-                className="w-full py-1.5 rounded-lg text-xs font-medium text-white">Listo</button>
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setShowCatFiltro(false)} />
+            <div className={`absolute top-full left-0 mt-1 w-64 max-h-72 overflow-y-auto rounded-xl shadow-lg border z-20 ${D.bgCard} ${D.border}`}>
+              <button onClick={() => setCatFiltros([])}
+                className={`block w-full text-left px-4 py-2 text-xs font-semibold border-b ${D.border} ${catFiltros.length === 0 ? D.accentText : D.textMuted}`}>
+                Todas
+              </button>
+              {catGasto.map(c => (
+                <label key={c.id} className={`flex items-center gap-2 px-4 py-2 text-xs cursor-pointer ${D.text}`}>
+                  <input type="checkbox" checked={catFiltros.includes(c.id)} onChange={() => toggleCatFiltro(c.id)} className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{c.emoji} {c.nombre}</span>
+                </label>
+              ))}
             </div>
+          </>
+        )}
+      </div>
+
+      {/* Totales del período filtrado */}
+      <div className={`rounded-2xl border p-4 mb-4 ${D.bgCard} ${D.border}`}>
+        <p className={`text-[10px] uppercase tracking-widest mb-2.5 ${D.textMuted}`}>Totales — {periodoLabel}{tipoRegFiltro !== 'todos' ? ` · ${tipoRegFiltro === 'real' ? 'Real' : 'Presupuesto'}` : ''}</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className={`text-[9px] uppercase tracking-wide ${D.textMuted}`}>Ingresos {tipoRegFiltro === 'todos' ? '(real)' : ''}</p>
+            <p className="font-serif text-base font-semibold text-emerald-600">{formatMonto(totalesFiltrados.ingresoReal, config.moneda)}</p>
+            {tipoRegFiltro === 'todos' && <p className={`text-[10px] ${D.textMuted}`}>de {formatMonto(totalesFiltrados.ingresoProy, config.moneda)} presup.</p>}
+          </div>
+          <div>
+            <p className={`text-[9px] uppercase tracking-wide ${D.textMuted}`}>Gastos {tipoRegFiltro === 'todos' ? '(real)' : ''}</p>
+            <p className={`font-serif text-base font-semibold ${D.text}`}>{formatMonto(totalesFiltrados.gastoReal, config.moneda)}</p>
+            {tipoRegFiltro === 'todos' && <p className={`text-[10px] ${D.textMuted}`}>de {formatMonto(totalesFiltrados.gastoProy, config.moneda)} presup.</p>}
+          </div>
+        </div>
+        <div className={`flex items-center justify-between mt-3 pt-3 border-t ${D.border}`}>
+          <span className={`text-[11px] ${D.textSub}`}>Balance real</span>
+          <span className={`text-sm font-bold ${totalesFiltrados.balanceReal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            {totalesFiltrados.balanceReal >= 0 ? '+' : ''}{formatMonto(totalesFiltrados.balanceReal, config.moneda)}
+          </span>
+        </div>
+        {tipoRegFiltro === 'todos' && (
+          <div className="flex items-center justify-between mt-1">
+            <span className={`text-[11px] ${D.textSub}`}>Balance presupuestado</span>
+            <span className={`text-sm font-bold ${totalesFiltrados.balanceProy >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {totalesFiltrados.balanceProy >= 0 ? '+' : ''}{formatMonto(totalesFiltrados.balanceProy, config.moneda)}
+            </span>
           </div>
         )}
       </div>
@@ -2123,7 +2190,9 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
   const [editandoCat, setEditandoCat] = useState(null);
   const [tempUrl, setTempUrl] = useState(scriptUrl || '');
   const [migrating, setMigrating] = useState(false);
+  const [showPaisDropdown, setShowPaisDropdown] = useState(false);
   const cats = showCats === 'gasto' ? catGasto : catIngreso;
+  const paisActual = (paises || []).find(p => p.code === config.pais) || (paises || [])[0];
 
   const handleGuardarCat = () => {
     if (!nuevaCat.nombre.trim()) return;
@@ -2156,35 +2225,39 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
         </label>
       </Sec>
 
-      {/* Moneda */}
-      <Sec D={D} t="Moneda">
-        <div className="flex gap-2">
-          {['S/.','$','€','£'].map(m => (
-            <button key={m} onClick={() => setConfig({ ...config, moneda: m })}
-              style={config.moneda === m ? { borderColor: D.accentDot, backgroundColor: D.accentDot } : undefined}
-              className={`flex-1 py-2 rounded-xl border-2 font-serif text-lg ${config.moneda === m ? 'text-white' : D.border + ' ' + D.bgCard}`}>{m}</button>
-          ))}
+      {/* País y moneda — compacto: un desplegable en vez de una grilla siempre abierta */}
+      <Sec D={D} t="País y moneda">
+        <div className="relative">
+          <button onClick={() => setShowPaisDropdown(!showPaisDropdown)}
+            className={`w-full p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${D.border} ${D.bgCard}`}>
+            <span className="text-lg">{paisActual?.emoji}</span>
+            <span className={`font-medium flex-1 ${D.text}`}>{paisActual?.nombre}</span>
+            <span className={`text-xs ${D.textMuted}`}>{config.moneda}</span>
+            <ChevronDown className={`w-4 h-4 transition ${D.textMuted} ${showPaisDropdown ? 'rotate-180' : ''}`} />
+          </button>
+          {showPaisDropdown && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setShowPaisDropdown(false)} />
+              <div className={`absolute top-full left-0 right-0 mt-1 max-h-64 overflow-y-auto rounded-xl shadow-lg border z-20 ${D.bgCard} ${D.border}`}>
+                {(paises || []).map(p => (
+                  <button key={p.code} onClick={async () => {
+                      const newCfg = { ...config, pais: p.code, moneda: p.moneda };
+                      setConfig(newCfg); APP_TZ = p.tz;
+                      saveL(KEYS.CONFIG, newCfg);
+                      if (scriptUrl) { try { await apiSaveSetting(scriptUrl, 'pais', p.code); } catch {} }
+                      setShowPaisDropdown(false);
+                    }}
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm transition ${config.pais === p.code ? D.bgMuted + ' ' + D.accentText : D.text}`}>
+                    <span className="text-lg">{p.emoji}</span>
+                    <span className="font-medium flex-1">{p.nombre}</span>
+                    <span className={D.textMuted}>{p.moneda}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
-      </Sec>
-
-      {/* País */}
-      <Sec D={D} t="País">
-        <p className={`text-xs mb-2 ${D.textMuted}`}>La zona horaria y moneda se ajustan según tu país</p>
-        <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto">
-          {(paises || []).map(p => (
-            <button key={p.code} onClick={async () => {
-                const newCfg = { ...config, pais: p.code, moneda: p.moneda };
-                setConfig(newCfg); APP_TZ = p.tz;
-                saveL(KEYS.CONFIG, newCfg);
-                if (scriptUrl) { try { await apiSaveSetting(scriptUrl, 'pais', p.code); } catch {} }
-              }}
-              style={config.pais === p.code ? { borderColor: D.accentDot } : undefined}
-              className={`p-2.5 rounded-xl border-2 flex items-center gap-2 text-left transition text-sm ${config.pais === p.code ? D.bgMuted : D.border + ' ' + D.bgCard}`}>
-              <span className="text-lg">{p.emoji}</span>
-              <span className={`font-medium ${D.text}`}>{p.nombre}</span>
-            </button>
-          ))}
-        </div>
+        <p className={`text-[11px] mt-2 ${D.textMuted}`}>La zona horaria y moneda se ajustan según tu país.</p>
       </Sec>
 
       {/* Apariencia */}
@@ -2256,29 +2329,29 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
               <button onClick={() => setShowCats(null)} className={`p-1.5 rounded-full ${D.bgCard}`}><X className={`w-5 h-5 ${D.text}`} /></button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1.5">
-              {cats.map(c => (
-                <div key={c.id} className={`rounded-xl border p-3 flex items-center gap-2 ${D.bgCard} ${D.border}`}>
+              {cats.map((c, idx) => (
+                <div key={c.id}
+                  style={editandoCat?.id === c.id ? { borderColor: D.accentDot } : undefined}
+                  className={`rounded-xl border p-2.5 flex items-center gap-2 transition ${D.bgCard} ${editandoCat?.id === c.id ? '' : D.border}`}>
                   {/* Flechas de orden */}
-                  <div className="flex flex-col gap-0.5">
+                  <div className="flex flex-col">
                     <button onClick={() => {
-                      const idx = cats.indexOf(c);
                       if (idx <= 0) return;
                       const newCats = [...cats];
                       [newCats[idx-1], newCats[idx]] = [newCats[idx], newCats[idx-1]];
                       newCats.forEach((cat, j) => onGuardarCat({ ...cat, orden: j+1 }, showCats));
-                    }} className={`text-xs p-0.5 rounded ${D.textMuted} hover:${D.bgMuted}`}>▲</button>
+                    }} disabled={idx === 0} className={`p-0.5 rounded disabled:opacity-20 ${D.textMuted}`}><ChevronUp className="w-3.5 h-3.5" /></button>
                     <button onClick={() => {
-                      const idx = cats.indexOf(c);
                       if (idx >= cats.length - 1) return;
                       const newCats = [...cats];
                       [newCats[idx], newCats[idx+1]] = [newCats[idx+1], newCats[idx]];
                       newCats.forEach((cat, j) => onGuardarCat({ ...cat, orden: j+1 }, showCats));
-                    }} className={`text-xs p-0.5 rounded ${D.textMuted} hover:${D.bgMuted}`}>▼</button>
+                    }} disabled={idx === cats.length - 1} className={`p-0.5 rounded disabled:opacity-20 ${D.textMuted}`}><ChevronDown className="w-3.5 h-3.5" /></button>
                   </div>
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0" style={{ backgroundColor: c.color + '22' }}>{c.emoji}</div>
-                  <span className={`flex-1 text-sm font-medium ${D.text}`}>{c.nombre}</span>
-                  <button onClick={() => { setEditandoCat(c); setNuevaCat({...c}); }} className={`text-xs px-2 py-1 rounded border ${D.bgMuted} ${D.border} ${D.textSub}`}>✏️</button>
-                  <button onClick={() => { if(confirm('¿Eliminar?')) onEliminarCat(c.id, showCats); }} className="text-red-500 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <span className={`flex-1 text-sm font-medium truncate ${D.text}`}>{c.nombre}</span>
+                  <button onClick={() => { setEditandoCat(c); setNuevaCat({...c}); }} className={`p-1.5 rounded-lg border ${D.bgMuted} ${D.border} ${D.textSub}`}><Pencil className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => { if(confirm('¿Eliminar?')) onEliminarCat(c.id, showCats); }} className="text-red-500 p-1.5"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               ))}
             </div>
@@ -2292,21 +2365,30 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
                   ✨ Agregar categorías sugeridas ({(showCats === 'gasto' ? sugerGasto : sugerIngreso).length})
                 </button>
               )}
-              <div className="flex gap-2 mb-2">
-                <input type="text" value={nuevaCat.emoji} onChange={e => setNuevaCat({...nuevaCat, emoji: e.target.value})} maxLength={2}
-                  className={`w-12 px-2 py-2 border rounded-lg text-center text-xl ${D.bgInput} ${D.border}`} />
-                <input type="text" value={nuevaCat.nombre} onChange={e => setNuevaCat({...nuevaCat, nombre: e.target.value})} placeholder="Nombre"
-                  className={`flex-1 px-3 py-2 border rounded-lg text-sm ${D.bgInput} ${D.border} ${D.text}`} />
+              <div className={`rounded-xl border p-3 ${D.bgCard} ${D.border}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>{editandoCat ? `Editando: ${editandoCat.nombre}` : 'Nueva categoría'}</p>
+                  {editandoCat && (
+                    <button onClick={() => { setEditandoCat(null); setNuevaCat({ nombre: '', emoji: '📦', color: '#8D99AE' }); }}
+                      className={`text-[10px] font-medium underline ${D.textMuted}`}>Cancelar</button>
+                  )}
+                </div>
+                <div className="flex gap-2 mb-2">
+                  <input type="text" value={nuevaCat.emoji} onChange={e => setNuevaCat({...nuevaCat, emoji: e.target.value})} maxLength={2}
+                    className={`w-12 px-2 py-2 border rounded-lg text-center text-xl ${D.bgInput} ${D.border}`} />
+                  <input type="text" value={nuevaCat.nombre} onChange={e => setNuevaCat({...nuevaCat, nombre: e.target.value})} placeholder="Nombre"
+                    className={`flex-1 px-3 py-2 border rounded-lg text-sm ${D.bgInput} ${D.border} ${D.text}`} />
+                </div>
+                <div className="flex gap-1.5 mb-2 flex-wrap">
+                  {['#E76F51','#F4A261','#2A9D8F','#264653','#8338EC','#FF006E','#3A86FF','#06D6A0','#EF233C','#FFD60A'].map(c => (
+                    <button key={c} onClick={() => setNuevaCat({...nuevaCat, color: c})}
+                      className={`w-6 h-6 rounded-full ${nuevaCat.color === c ? 'ring-2 ring-offset-1 ring-stone-900' : ''}`} style={{ backgroundColor: c }} />
+                  ))}
+                </div>
+                <button onClick={handleGuardarCat} disabled={!nuevaCat.nombre.trim()} style={{ backgroundColor: D.accentDot }} className="w-full py-2 text-white rounded-lg text-sm font-medium disabled:opacity-30">
+                  {editandoCat ? 'Actualizar' : '+ Agregar'}
+                </button>
               </div>
-              <div className="flex gap-1.5 mb-2 flex-wrap">
-                {['#E76F51','#F4A261','#2A9D8F','#264653','#8338EC','#FF006E','#3A86FF','#06D6A0','#EF233C','#FFD60A'].map(c => (
-                  <button key={c} onClick={() => setNuevaCat({...nuevaCat, color: c})}
-                    className={`w-6 h-6 rounded-full ${nuevaCat.color === c ? 'ring-2 ring-offset-1 ring-stone-900' : ''}`} style={{ backgroundColor: c }} />
-                ))}
-              </div>
-              <button onClick={handleGuardarCat} disabled={!nuevaCat.nombre.trim()} style={{ backgroundColor: D.accentDot }} className="w-full py-2 text-white rounded-lg text-sm font-medium disabled:opacity-30">
-                {editandoCat ? 'Actualizar' : '+ Agregar'}
-              </button>
             </div>
           </div>
         </div>
