@@ -191,17 +191,6 @@ const mixHex = (hexAcento, hexBase, ratioAcento) => {
   return `#${[mix(ar, br), mix(ag, bg), mix(ab, bb)].map(v => v.toString(16).padStart(2, '0')).join('')}`;
 };
 
-// Construye un path SVG de línea a partir de una lista de valores, escalados a [0,h].
-const buildSparkPath = (vals, w, h, max) => {
-  if (vals.length === 0) return '';
-  const stepX = vals.length > 1 ? w / (vals.length - 1) : 0;
-  return 'M' + vals.map((v, i) => {
-    const x = i * stepX;
-    const y = max > 0 ? h - (Math.min(v, max) / max) * h : h;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' L');
-};
-
 const ajustarSiFinDeSemana = (fecha) => {
   const d = new Date(fecha);
   const dow = d.getDay();
@@ -1692,7 +1681,7 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEd
                     {sparkMesesConDato >= 2 && (
                       <div className="pt-1">
                         <p className={`text-[10px] uppercase tracking-widest mb-1 ${D.textMuted}`}>Tendencia — últimos {spark.length} meses</p>
-                        <Sparkline datos={spark} meses={sparklineMeses} color={c.color || '#8D99AE'} isDark={isDark} D={D} />
+                        <GraficoTendencia datos={spark} meses={sparklineMeses} config={config} D={D} isDark={isDark} />
                       </div>
                     )}
                     <div className="pt-1">
@@ -1725,41 +1714,72 @@ function Analisis({ transacciones, catGasto, catIngreso, config, D, isDark, onEd
   );
 }
 
-// ============ SPARKLINE: REAL VS PRESUPUESTO ============
-// Mini gráfico decorativo (sin ejes, sin tooltip) — el dato exacto ya está en
-// texto arriba, esto solo da contexto de tendencia. Presupuesto = línea de
-// contexto (gris, punteada); Real = la serie que importa (color de la
-// categoría, sólida, con marcador en el último punto).
-function Sparkline({ datos, meses, color, isDark, D }) {
-  const w = 240, h = 32;
+// ============ GRÁFICO DE TENDENCIA: REAL VS PRESUPUESTO ============
+// Línea completa con eje Y escalado (para apreciar máximos/mínimos), eje X
+// con los meses, ambas series en colores distintos y con su valor directo en
+// cada punto — sin tooltip (no hace falta: todo ya está etiquetado).
+const COLOR_PRESUPUESTADO = '#3A86FF';
+const COLOR_REAL = '#06A77D';
+
+function GraficoTendencia({ datos, meses, config, D, isDark }) {
+  const w = 320, padL = 40, padR = 8, padT = 24, h = 90, gapXAxis = 34;
+  const viewH = padT + h + gapXAxis;
+  const plotW = w - padL - padR;
   const max = Math.max(1, ...datos.flatMap(d => [d.real, d.proy]));
-  const realPath = buildSparkPath(datos.map(d => d.real), w, h, max);
-  const proyPath = buildSparkPath(datos.map(d => d.proy), w, h, max);
-  const stepX = datos.length > 1 ? w / (datos.length - 1) : 0;
-  const lastX = (datos.length - 1) * stepX;
-  const lastReal = datos[datos.length - 1]?.real || 0;
-  const lastY = max > 0 ? h - (Math.min(lastReal, max) / max) * h : h;
-  const grisLinea = isDark ? '#57534e' : '#d6d3d1';
-  const anillo = isDark ? '#1c1917' : '#ffffff';
+  const mag = Math.pow(10, Math.floor(Math.log10(max)));
+  const norm = max / mag;
+  const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  const niceMax = step * mag;
+  const n = datos.length;
+  const stepX = n > 1 ? plotW / (n - 1) : 0;
+  const xAt = (i) => padL + i * stepX;
+  const yAt = (v) => padT + h - (Math.min(v, niceMax) / niceMax) * h;
+  const pathFor = (key) => 'M' + datos.map((d, i) => `${xAt(i).toFixed(1)},${yAt(d[key]).toFixed(1)}`).join(' L');
+
+  const gridColor = isDark ? '#3f3c39' : '#e7e5e4';
+  const axisTextColor = isDark ? '#a8a29e' : '#78716c';
+  const fmt = (v) => `${config.moneda} ${Math.round(v).toLocaleString('es-PE')}`;
 
   return (
     <div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: h }} preserveAspectRatio="none">
-        <path d={proyPath} fill="none" stroke={grisLinea} strokeWidth="2" strokeDasharray="4 3" strokeLinecap="round" strokeLinejoin="round" />
-        <path d={realPath} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx={lastX} cy={lastY} r="5" fill={anillo} />
-        <circle cx={lastX} cy={lastY} r="4" fill={color} />
+      <svg viewBox={`0 0 ${w} ${viewH}`} className="w-full h-auto block" preserveAspectRatio="xMidYMid meet">
+        {/* Eje Y: gridlines + etiquetas de escala */}
+        {[0, 0.25, 0.5, 0.75, 1].map(f => {
+          const y = padT + h - f * h;
+          return (
+            <g key={f}>
+              <line x1={padL} y1={y} x2={w - padR} y2={y} stroke={gridColor} strokeWidth="1" />
+              <text x={padL - 6} y={y + 3} fontSize="8" textAnchor="end" fill={axisTextColor}>{Math.round(niceMax * f).toLocaleString('es-PE')}</text>
+            </g>
+          );
+        })}
+        {/* Líneas */}
+        <path d={pathFor('proy')} fill="none" stroke={COLOR_PRESUPUESTADO} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={pathFor('real')} fill="none" stroke={COLOR_REAL} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Puntos + valor directo en cada uno */}
+        {datos.map((d, i) => (
+          <g key={i}>
+            <circle cx={xAt(i)} cy={yAt(d.proy)} r="3.5" fill={COLOR_PRESUPUESTADO} />
+            <text x={xAt(i)} y={yAt(d.proy) - 8} fontSize="8" fontWeight="700" textAnchor="middle" fill={COLOR_PRESUPUESTADO}>{fmt(d.proy)}</text>
+            <circle cx={xAt(i)} cy={yAt(d.real)} r="3.5" fill={COLOR_REAL} />
+            <text x={xAt(i)} y={yAt(d.real) + 15} fontSize="8" fontWeight="700" textAnchor="middle" fill={COLOR_REAL}>{fmt(d.real)}</text>
+          </g>
+        ))}
+        {/* Eje X: meses */}
+        {meses.map((m, i) => (
+          <text key={m.key} x={xAt(i)} y={padT + h + gapXAxis - 6} fontSize="8" textAnchor="middle" fill={axisTextColor}>
+            {m.label.split(' ')[0].slice(0, 3)} {m.label.split(' ')[1]}
+          </text>
+        ))}
       </svg>
-      <div className="flex items-center justify-between mt-1">
-        <div className="flex items-center gap-3">
-          <span className={`flex items-center gap-1 text-[9px] ${D.textMuted}`}>
-            <span className="w-2.5 h-0.5 rounded-full" style={{ backgroundColor: color }} />Real
-          </span>
-          <span className={`flex items-center gap-1 text-[9px] ${D.textMuted}`}>
-            <span className="w-2.5 h-0 border-t-2 border-dashed" style={{ borderColor: grisLinea }} />Presup.
-          </span>
-        </div>
-        <span className={`text-[9px] ${D.textMuted}`}>{meses[0]?.label.slice(0,3)} – {meses[meses.length-1]?.label.slice(0,3)}</span>
+      {/* Leyenda */}
+      <div className="flex items-center justify-center gap-4 mt-0.5">
+        <span className="flex items-center gap-1 text-[9px]" style={{ color: axisTextColor }}>
+          <span className="w-3 h-0.5 rounded-full" style={{ backgroundColor: COLOR_PRESUPUESTADO }} />Presupuestado
+        </span>
+        <span className="flex items-center gap-1 text-[9px]" style={{ color: axisTextColor }}>
+          <span className="w-3 h-0.5 rounded-full" style={{ backgroundColor: COLOR_REAL }} />Real
+        </span>
       </div>
     </div>
   );
