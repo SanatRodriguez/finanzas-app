@@ -69,7 +69,7 @@ const DEFAULT_CONFIG = {
   diaInicioMes: 23,
   ajustarFinDeSemana: true,
   moneda: 'S/.',
-  persona: 'Sanat',
+  persona: '',
   tema: 'claro',
   acento: 'amber',
   pais: 'PE',
@@ -789,12 +789,17 @@ export default function App() {
 // listSettings (ya existe en cualquier despliegue del Apps Script) para
 // probar la conexión, así no hace falta tocar el backend de nadie.
 const PASOS_WIZARD = ['Bienvenida', 'Tú', 'Conectar', 'Categorías', 'Instalar'];
+// ID del Google Sheet plantilla (limpio, sin datos personales, con el Apps
+// Script ya vinculado) — mientras esté vacío, el paso "Conectar" muestra
+// instrucciones genéricas en vez del botón de duplicar.
+const TEMPLATE_SHEET_ID = '1S-KjEWger7vAPEop5w55XvtnUNkdmm9YxrU2jnmQFVU';
 
 function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, sugerGasto, sugerIngreso, paises, installPrompt, D, isDark, onCerrar }) {
   const [paso, setPaso] = useState(0);
   const [tempUrl, setTempUrl] = useState(scriptUrl || '');
   const [testStatus, setTestStatus] = useState('idle'); // idle | testing | ok | error
   const [catsImportadas, setCatsImportadas] = useState(false);
+  const [showAyudaUrl, setShowAyudaUrl] = useState(false);
 
   const probarConexion = async () => {
     if (!tempUrl.trim()) return;
@@ -867,7 +872,7 @@ function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, suge
           <div className="flex-1 py-4">
             <h2 className={`font-serif text-xl font-semibold mb-1 ${D.text}`}>¿Cómo te llamas?</h2>
             <p className={`text-xs mb-4 ${D.textMuted}`}>Así identificamos tus registros si comparten el mismo Sheet.</p>
-            <input type="text" value={config.persona} onChange={e => setConfig({ ...config, persona: e.target.value })} placeholder="Tu nombre"
+            <input type="text" value={config.persona} onChange={e => setConfig({ ...config, persona: e.target.value })} placeholder="Nombre"
               className={`w-full px-4 py-3 rounded-xl text-base border outline-none mb-6 ${D.bgInput} ${D.border} ${D.text}`} />
             <h2 className={`font-serif text-xl font-semibold mb-1 ${D.text}`}>¿Desde qué país?</h2>
             <p className={`text-xs mb-3 ${D.textMuted}`}>Ajustamos zona horaria y moneda automáticamente.</p>
@@ -887,11 +892,43 @@ function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, suge
         {paso === 2 && (
           <div className="flex-1 py-4">
             <h2 className={`font-serif text-xl font-semibold mb-1 ${D.text}`}>Conecta tu Google Sheet</h2>
-            <p className={`text-xs mb-4 ${D.textMuted}`}>
-              Necesitas tu propia copia del Apps Script de Finanzas pegada en un Google Sheet.
-              {!scriptUrl && ' Si todavía no la tienes, es un paso único — pídele a quien te invitó que te ayude a prepararla.'}
-            </p>
-            <label className={`text-[10px] uppercase tracking-widest mb-1 block ${D.textMuted}`}>URL del Apps Script (termina en /exec)</label>
+            <p className={`text-xs mb-4 ${D.textMuted}`}>Son 3 pasos rápidos, se pueden hacer desde el celular.</p>
+
+            {/* 1. Duplicar plantilla */}
+            <div className={`rounded-xl border p-3 mb-3 ${D.bgCard} ${D.border}`}>
+              <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>1. Duplica la plantilla</p>
+              {TEMPLATE_SHEET_ID ? (
+                <a href={`https://docs.google.com/spreadsheets/d/${TEMPLATE_SHEET_ID}/copy`} target="_blank" rel="noopener noreferrer"
+                  style={{ backgroundColor: D.accentDot }}
+                  className="w-full block text-center py-2.5 text-white rounded-xl text-sm font-medium transition active:scale-[0.98]">
+                  📄 Duplicar plantilla de Google Sheets
+                </a>
+              ) : (
+                <p className={`text-xs ${D.textSub}`}>La plantilla lista para duplicar todavía no está disponible — mientras tanto, pídele a quien te invitó que te comparta su propia copia del Apps Script.</p>
+              )}
+              {TEMPLATE_SHEET_ID && <p className={`text-[11px] mt-2 ${D.textMuted}`}>Se abre Google Sheets y te pide iniciar sesión con tu cuenta — dale "Hacer una copia".</p>}
+            </div>
+
+            {/* 2. Obtener la URL del Apps Script */}
+            <div className={`rounded-xl border p-3 mb-3 ${D.bgCard} ${D.border}`}>
+              <button onClick={() => setShowAyudaUrl(!showAyudaUrl)} className="w-full flex items-center justify-between">
+                <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>2. Obtén la URL del Apps Script</p>
+                <ChevronDown className={`w-3.5 h-3.5 transition ${D.textMuted} ${showAyudaUrl ? 'rotate-180' : ''}`} />
+              </button>
+              {showAyudaUrl && (
+                <ol className={`mt-2 space-y-1.5 text-xs list-decimal list-inside ${D.textSub}`}>
+                  <li>En tu copia del Sheet: menú <b>Extensiones → Apps Script</b>.</li>
+                  <li>Arriba a la derecha, <b>Implementar → Nueva implementación</b>.</li>
+                  <li>En "Tipo", elige <b>Aplicación web</b> (ícono de engranaje ⚙️).</li>
+                  <li>"Ejecutar como": <b>Yo</b>. "Quién tiene acceso": <b>Cualquier usuario</b>.</li>
+                  <li>Dale <b>Implementar</b>, autoriza los permisos que pida Google.</li>
+                  <li>Copia la URL que termina en <code>/exec</code> y pégala abajo.</li>
+                </ol>
+              )}
+            </div>
+
+            {/* 3. Pegar la URL */}
+            <label className={`text-[10px] uppercase tracking-widest mb-1 block ${D.textMuted}`}>3. Pega la URL aquí</label>
             <input type="url" value={tempUrl} onChange={e => { setTempUrl(e.target.value); setTestStatus('idle'); }}
               placeholder="https://script.google.com/macros/s/.../exec"
               className={`w-full px-3 py-2.5 rounded-xl text-xs font-mono border outline-none mb-3 ${D.bgInput} ${D.border} ${D.text}`} />
@@ -2787,7 +2824,7 @@ function Config({ config, setConfig, catGasto, catIngreso, onGuardarCat, onElimi
 
       {/* Persona */}
       <Sec D={D} t="Tu nombre">
-        <input type="text" value={config.persona} onChange={e => setConfig({ ...config, persona: e.target.value })}
+        <input type="text" value={config.persona} onChange={e => setConfig({ ...config, persona: e.target.value })} placeholder="Nombre"
           className={`w-full px-3.5 py-2.5 rounded-xl text-sm outline-none border ${D.bgInput} ${D.border} ${D.text}`} />
       </Sec>
 
