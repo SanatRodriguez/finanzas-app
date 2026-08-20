@@ -794,12 +794,20 @@ const PASOS_WIZARD = ['Bienvenida', 'Tú', 'Conectar', 'Categorías', 'Instalar'
 // instrucciones genéricas en vez del botón de duplicar.
 const TEMPLATE_SHEET_ID = '1S-KjEWger7vAPEop5w55XvtnUNkdmm9YxrU2jnmQFVU';
 
+// Colores fijos (no siguen el acento dinámico) solo para el paso "Conecta tu
+// Google Sheet" — pedido explícitamente para que ese paso se vea consistente
+// sin importar el color de acento que cada quien elija.
+const COLOR_SHEET_BG = '#e6f2ed';
+const COLOR_SHEET_BTN = '#059669';
+const COLOR_SHEET_TEXT = '#065f46';
+
 function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, sugerGasto, sugerIngreso, paises, installPrompt, D, isDark, onCerrar }) {
   const [paso, setPaso] = useState(0);
   const [tempUrl, setTempUrl] = useState(scriptUrl || '');
   const [testStatus, setTestStatus] = useState('idle'); // idle | testing | ok | error
-  const [catsImportadas, setCatsImportadas] = useState(false);
-  const [showAyudaUrl, setShowAyudaUrl] = useState(false);
+  const [duplicado, setDuplicado] = useState(false);
+  const [catsSeleccionadas, setCatsSeleccionadas] = useState(() => new Set([...sugerGasto, ...sugerIngreso].map(c => c.id)));
+  const [catsGuardadas, setCatsGuardadas] = useState(false);
 
   const probarConexion = async () => {
     if (!tempUrl.trim()) return;
@@ -813,10 +821,22 @@ function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, suge
     }
   };
 
-  const importarSugeridas = () => {
-    sugerGasto.forEach(c => onGuardarCat({ ...c, activo: true }, 'gasto'));
-    sugerIngreso.forEach(c => onGuardarCat({ ...c, activo: true }, 'ingreso'));
-    setCatsImportadas(true);
+  // No hay forma de saber desde acá si realmente terminó de duplicar (pasa en
+  // otra pestaña) — a los 5s se asume hecho y el paso se marca como completado.
+  const clickDuplicar = () => setTimeout(() => setDuplicado(true), 5000);
+
+  const toggleCat = (id) => {
+    setCatsSeleccionadas(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+
+  const guardarCategorias = () => {
+    sugerGasto.filter(c => catsSeleccionadas.has(c.id)).forEach(c => onGuardarCat({ ...c, activo: true }, 'gasto'));
+    sugerIngreso.filter(c => catsSeleccionadas.has(c.id)).forEach(c => onGuardarCat({ ...c, activo: true }, 'ingreso'));
+    setCatsGuardadas(true);
   };
 
   const instalarPWA = async () => {
@@ -825,11 +845,22 @@ function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, suge
     try { await installPrompt.userChoice; } catch {}
   };
 
-  const siguiente = () => setPaso(p => Math.min(p + 1, PASOS_WIZARD.length - 1));
-  const anterior = () => setPaso(p => Math.max(p - 1, 0));
+  // El paso de categorías (3) solo tiene sentido si ya hay conexión — se
+  // salta automáticamente hacia/desde el paso 4 si todavía no se conectó.
+  const siguiente = () => setPaso(p => {
+    let next = p + 1;
+    if (next === 3 && !scriptUrl) next = 4;
+    return Math.min(next, PASOS_WIZARD.length - 1);
+  });
+  const anterior = () => setPaso(p => {
+    let prev = p - 1;
+    if (prev === 3 && !scriptUrl) prev = 2;
+    return Math.max(prev, 0);
+  });
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col" style={{ backgroundColor: D.bg }}>
+    <div className="fixed inset-0 z-[60] flex flex-col items-center" style={{ backgroundColor: D.bg }}>
+    <div className="w-full max-w-md flex flex-col h-full">
       {/* Progreso + cerrar */}
       <div className="flex items-center gap-2 px-5 pt-5 pb-3">
         <div className="flex-1 flex gap-1.5">
@@ -895,66 +926,88 @@ function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, suge
             <p className={`text-xs mb-4 ${D.textMuted}`}>Son 3 pasos rápidos, se pueden hacer desde el celular.</p>
 
             {/* 1. Duplicar plantilla */}
-            <div className={`rounded-xl border p-3 mb-3 ${D.bgCard} ${D.border}`}>
-              <p className={`text-[10px] uppercase tracking-widest mb-2 ${D.textMuted}`}>1. Duplica la plantilla</p>
+            <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: COLOR_SHEET_BG }}>
+              <p className="text-[10px] uppercase tracking-widest mb-2 font-semibold" style={{ color: COLOR_SHEET_BTN }}>1. Duplica la plantilla</p>
               {TEMPLATE_SHEET_ID ? (
-                <a href={`https://docs.google.com/spreadsheets/d/${TEMPLATE_SHEET_ID}/copy`} target="_blank" rel="noopener noreferrer"
-                  style={{ backgroundColor: D.accentDot }}
-                  className="w-full block text-center py-2.5 text-white rounded-xl text-sm font-medium transition active:scale-[0.98]">
-                  📄 Duplicar plantilla de Google Sheets
-                </a>
+                duplicado ? (
+                  <div className="w-full text-center py-2.5 rounded-xl text-sm font-medium bg-stone-300 text-stone-600">
+                    ✓ Plantilla duplicada
+                  </div>
+                ) : (
+                  <a href={`https://docs.google.com/spreadsheets/d/${TEMPLATE_SHEET_ID}/copy`} target="_blank" rel="noopener noreferrer"
+                    onClick={clickDuplicar} style={{ backgroundColor: COLOR_SHEET_BTN }}
+                    className="w-full block text-center py-2.5 text-white rounded-xl text-sm font-medium transition active:scale-[0.98]">
+                    📄 Duplicar plantilla de Google Sheets
+                  </a>
+                )
               ) : (
-                <p className={`text-xs ${D.textSub}`}>La plantilla lista para duplicar todavía no está disponible — mientras tanto, pídele a quien te invitó que te comparta su propia copia del Apps Script.</p>
+                <p className="text-xs" style={{ color: COLOR_SHEET_TEXT }}>La plantilla lista para duplicar todavía no está disponible — mientras tanto, pídele a quien te invitó que te comparta su propia copia del Apps Script.</p>
               )}
-              {TEMPLATE_SHEET_ID && <p className={`text-[11px] mt-2 ${D.textMuted}`}>Se abre Google Sheets y te pide iniciar sesión con tu cuenta — dale "Hacer una copia".</p>}
+              {TEMPLATE_SHEET_ID && !duplicado && <p className="text-[11px] mt-2" style={{ color: COLOR_SHEET_TEXT }}>Se abre Google Sheets y te pide iniciar sesión con tu cuenta — dale "Hacer una copia". Dentro de tu copia vas a ver una hoja "🚀 Empezar aquí" con el resto de los pasos.</p>}
             </div>
 
-            {/* 2. Obtener la URL del Apps Script */}
-            <div className={`rounded-xl border p-3 mb-3 ${D.bgCard} ${D.border}`}>
-              <button onClick={() => setShowAyudaUrl(!showAyudaUrl)} className="w-full flex items-center justify-between">
-                <p className={`text-[10px] uppercase tracking-widest ${D.textMuted}`}>2. Obtén la URL del Apps Script</p>
-                <ChevronDown className={`w-3.5 h-3.5 transition ${D.textMuted} ${showAyudaUrl ? 'rotate-180' : ''}`} />
-              </button>
-              {showAyudaUrl && (
-                <ol className={`mt-2 space-y-1.5 text-xs list-decimal list-inside ${D.textSub}`}>
-                  <li>En tu copia del Sheet: menú <b>Extensiones → Apps Script</b>.</li>
-                  <li>Arriba a la derecha, <b>Implementar → Nueva implementación</b>.</li>
-                  <li>En "Tipo", elige <b>Aplicación web</b> (ícono de engranaje ⚙️).</li>
-                  <li>"Ejecutar como": <b>Yo</b>. "Quién tiene acceso": <b>Cualquier usuario</b>.</li>
-                  <li>Dale <b>Implementar</b>, autoriza los permisos que pida Google.</li>
-                  <li>Copia la URL que termina en <code>/exec</code> y pégala abajo.</li>
-                </ol>
-              )}
+            {/* 2. Obtener la URL del Apps Script — siempre visible, sin colapsar */}
+            <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: COLOR_SHEET_BG }}>
+              <p className="text-[10px] uppercase tracking-widest mb-2 font-semibold" style={{ color: COLOR_SHEET_BTN }}>2. Obtén la URL del Apps Script</p>
+              <ol className="space-y-1.5 text-xs list-decimal list-inside" style={{ color: COLOR_SHEET_TEXT }}>
+                <li>En tu copia del Sheet: menú <b>Extensiones → Apps Script</b>.</li>
+                <li>Arriba a la derecha, <b>Implementar → Nueva implementación</b>.</li>
+                <li>En "Tipo", elige <b>Aplicación web</b> (ícono de engranaje ⚙️).</li>
+                <li>"Ejecutar como": <b>Yo</b>. "Quién tiene acceso": <b>Cualquier usuario</b>.</li>
+                <li>Dale <b>Implementar</b>, autoriza los permisos que pida Google.</li>
+                <li>Copia la URL que termina en <code>/exec</code> y pégala abajo.</li>
+              </ol>
             </div>
 
             {/* 3. Pegar la URL */}
-            <label className={`text-[10px] uppercase tracking-widest mb-1 block ${D.textMuted}`}>3. Pega la URL aquí</label>
-            <input type="url" value={tempUrl} onChange={e => { setTempUrl(e.target.value); setTestStatus('idle'); }}
-              placeholder="https://script.google.com/macros/s/.../exec"
-              className={`w-full px-3 py-2.5 rounded-xl text-xs font-mono border outline-none mb-3 ${D.bgInput} ${D.border} ${D.text}`} />
-            <button onClick={probarConexion} disabled={!tempUrl.trim() || testStatus === 'testing'} style={{ backgroundColor: D.accentDot }}
-              className="w-full py-2.5 text-white rounded-xl text-sm font-medium disabled:opacity-30 transition active:scale-[0.98]">
-              {testStatus === 'testing' ? 'Probando...' : 'Probar conexión'}
-            </button>
-            {testStatus === 'ok' && <p className="text-xs mt-2 text-emerald-600 font-medium">✓ Conectado — ya puedes seguir</p>}
-            {testStatus === 'error' && <p className="text-xs mt-2 text-red-500 font-medium">No pudimos conectar. Revisa que la URL sea correcta y que el deployment esté publicado como "cualquier usuario".</p>}
-            <p className={`text-[11px] mt-4 ${D.textMuted}`}>¿Todavía no la tienes lista? Puedes seguir explorando la app sin conectar, y volver a este paso desde Ajustes cuando la tengas.</p>
+            <div className="rounded-xl p-3 mb-1" style={{ backgroundColor: COLOR_SHEET_BG }}>
+              <label className="text-[10px] uppercase tracking-widest mb-1 block font-semibold" style={{ color: COLOR_SHEET_BTN }}>3. Pega la URL aquí</label>
+              <input type="url" value={tempUrl} onChange={e => { setTempUrl(e.target.value); setTestStatus('idle'); }}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                className="w-full px-3 py-2.5 rounded-xl text-xs font-mono border outline-none mb-3 bg-white border-emerald-200"
+                style={{ color: COLOR_SHEET_TEXT }} />
+              <button onClick={probarConexion} disabled={!tempUrl.trim() || testStatus === 'testing'} style={{ backgroundColor: COLOR_SHEET_BTN }}
+                className="w-full py-2.5 text-white rounded-xl text-sm font-medium disabled:opacity-30 transition active:scale-[0.98]">
+                {testStatus === 'testing' ? 'Probando...' : 'Probar conexión'}
+              </button>
+              {testStatus === 'ok' && <p className="text-xs mt-2 font-medium" style={{ color: COLOR_SHEET_BTN }}>✓ Conectado — ya puedes seguir</p>}
+              {testStatus === 'error' && <p className="text-xs mt-2 text-red-600 font-medium">No pudimos conectar. Revisa que la URL sea correcta y que el deployment esté publicado como "cualquier usuario".</p>}
+            </div>
+            <p className={`text-[11px] mt-3 ${D.textMuted}`}>¿Todavía no la tienes lista? Puedes seguir explorando la app sin conectar, y volver a este paso desde Ajustes cuando la tengas.</p>
           </div>
         )}
 
-        {/* PASO 3: Categorías sugeridas */}
+        {/* PASO 3: Categorías sugeridas — solo se llega acá si ya hay conexión */}
         {paso === 3 && (
           <div className="flex-1 py-4">
             <h2 className={`font-serif text-xl font-semibold mb-1 ${D.text}`}>Categorías para empezar</h2>
-            <p className={`text-xs mb-4 ${D.textMuted}`}>Importamos {sugerGasto.length} categorías de gasto y {sugerIngreso.length} de ingreso — las editas, agregas o borras cuando quieras desde Ajustes.</p>
+            <p className={`text-xs mb-4 ${D.textMuted}`}>Elige las que quieras agregar — las editas, agregas o borras cuando quieras desde Ajustes.</p>
+
+            <p className={`text-[10px] uppercase tracking-widest mb-1.5 ${D.textMuted}`}>Gastos</p>
             <div className="flex flex-wrap gap-1.5 mb-4">
-              {[...sugerGasto, ...sugerIngreso].slice(0, 14).map(c => (
-                <span key={c.id} className={`px-2 py-1 rounded-full text-xs border ${D.bgCard} ${D.border} ${D.textSub}`}>{c.emoji} {c.nombre}</span>
+              {sugerGasto.map(c => (
+                <button key={c.id} onClick={() => toggleCat(c.id)}
+                  style={catsSeleccionadas.has(c.id) ? { backgroundColor: D.accentDot, borderColor: D.accentDot } : undefined}
+                  className={`px-2.5 py-1.5 rounded-full text-xs border transition ${catsSeleccionadas.has(c.id) ? 'text-white' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+                  {c.emoji} {c.nombre}
+                </button>
               ))}
             </div>
-            <button onClick={importarSugeridas} disabled={catsImportadas} style={{ backgroundColor: D.accentDot }}
+
+            <p className={`text-[10px] uppercase tracking-widest mb-1.5 ${D.textMuted}`}>Ingresos</p>
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {sugerIngreso.map(c => (
+                <button key={c.id} onClick={() => toggleCat(c.id)}
+                  style={catsSeleccionadas.has(c.id) ? { backgroundColor: D.accentDot, borderColor: D.accentDot } : undefined}
+                  className={`px-2.5 py-1.5 rounded-full text-xs border transition ${catsSeleccionadas.has(c.id) ? 'text-white' : D.bgCard + ' ' + D.border + ' ' + D.textSub}`}>
+                  {c.emoji} {c.nombre}
+                </button>
+              ))}
+            </div>
+
+            <button onClick={guardarCategorias} disabled={catsGuardadas || catsSeleccionadas.size === 0} style={{ backgroundColor: D.accentDot }}
               className="w-full py-2.5 text-white rounded-xl text-sm font-medium disabled:opacity-50 transition active:scale-[0.98]">
-              {catsImportadas ? '✓ Categorías importadas' : 'Importar categorías sugeridas'}
+              {catsGuardadas ? '✓ Categorías guardadas' : `Guardar ${catsSeleccionadas.size} categoría${catsSeleccionadas.size !== 1 ? 's' : ''}`}
             </button>
           </div>
         )}
@@ -994,6 +1047,7 @@ function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, suge
           </button>
         )}
       </div>
+    </div>
     </div>
   );
 }
