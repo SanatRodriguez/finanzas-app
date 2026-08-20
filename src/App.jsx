@@ -806,7 +806,7 @@ function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, suge
   const [tempUrl, setTempUrl] = useState(scriptUrl || '');
   const [testStatus, setTestStatus] = useState('idle'); // idle | testing | ok | error
   const [duplicado, setDuplicado] = useState(false);
-  const [catsSeleccionadas, setCatsSeleccionadas] = useState(() => new Set([...sugerGasto, ...sugerIngreso].map(c => c.id)));
+  const [catsSeleccionadas, setCatsSeleccionadas] = useState(() => new Set());
   const [catsGuardadas, setCatsGuardadas] = useState(false);
 
   const probarConexion = async () => {
