@@ -24,6 +24,22 @@ const CATEGORIAS_SUGERIDAS_GASTO = [
   { id: 'ahorro', nombre: 'Ahorro', emoji: '💰', color: '#FFD60A', orden: 10 },
   { id: 'mascotas', nombre: 'Mascotas', emoji: '🐾', color: '#D4A373', orden: 11 },
   { id: 'otros', nombre: 'Otros', emoji: '📦', color: '#8D99AE', orden: 12 },
+  { id: 'aseo_personal', nombre: 'Aseo Personal', emoji: '🧴', color: '#C77DFF', orden: 13 },
+  { id: 'gym', nombre: 'Gym', emoji: '🏋️', color: '#2A9D8F', orden: 14 },
+  { id: 'auto', nombre: 'Auto', emoji: '🚘', color: '#264653', orden: 15 },
+  { id: 'spotify', nombre: 'Spotify', emoji: '🟢', color: '#1DB954', orden: 16 },
+  { id: 'barberia', nombre: 'Barbería', emoji: '💈', color: '#457B9D', orden: 17 },
+  { id: 'peluqueria', nombre: 'Peluquería', emoji: '💅', color: '#FF6B9D', orden: 18 },
+  { id: 'plan_movil', nombre: 'Plan Móvil', emoji: '📲', color: '#6C757D', orden: 19 },
+  { id: 'cloude_ai', nombre: 'Cloude AI', emoji: '⚙️', color: '#495057', orden: 20 },
+  { id: 'alquiler', nombre: 'Alquiler', emoji: '🏡', color: '#E9C46A', orden: 21 },
+  { id: 'google_one', nombre: 'Google One', emoji: '☁️', color: '#4285F4', orden: 22 },
+  { id: 'luz', nombre: 'Luz', emoji: '💡', color: '#FFB703', orden: 23 },
+  { id: 'agua', nombre: 'Agua', emoji: '💧', color: '#219EBC', orden: 24 },
+  { id: 'internet', nombre: 'Internet', emoji: '🛜', color: '#023047', orden: 25 },
+  { id: 'gas', nombre: 'Gas', emoji: '🛢️', color: '#6D6875', orden: 26 },
+  { id: 'netflix', nombre: 'Netflix', emoji: '🎬', color: '#E50914', orden: 27 },
+  { id: 'donacion', nombre: 'Donación', emoji: '💛', color: '#FFD60A', orden: 28 },
 ];
 
 const CATEGORIAS_SUGERIDAS_INGRESO = [
@@ -31,6 +47,10 @@ const CATEGORIAS_SUGERIDAS_INGRESO = [
   { id: 'freelance', nombre: 'Freelance / Extra', emoji: '💵', color: '#06D6A0', orden: 2 },
   { id: 'inversiones', nombre: 'Inversiones', emoji: '📈', color: '#3A86FF', orden: 3 },
   { id: 'bonos', nombre: 'Bonos / Regalos', emoji: '🎁', color: '#FF006E', orden: 4 },
+  { id: 'cts', nombre: 'CTS', emoji: '🏦', color: '#3A86FF', orden: 5 },
+  { id: 'gratificacion', nombre: 'Gratificación', emoji: '🎁', color: '#FF006E', orden: 6 },
+  { id: 'ingreso_extra', nombre: 'Ingreso Extra', emoji: '✨', color: '#FFD60A', orden: 7 },
+  { id: 'utilidades', nombre: 'Utilidades', emoji: '💵', color: '#06D6A0', orden: 8 },
 ];
 
 // ============ AHORRO ============
@@ -793,6 +813,10 @@ const PASOS_WIZARD = ['Bienvenida', 'Tú', 'Conectar', 'Categorías', 'Instalar'
 // Script ya vinculado) — mientras esté vacío, el paso "Conectar" muestra
 // instrucciones genéricas en vez del botón de duplicar.
 const TEMPLATE_SHEET_ID = '1S-KjEWger7vAPEop5w55XvtnUNkdmm9YxrU2jnmQFVU';
+// Video corto (YouTube, sin listar) que muestra el paso de autorizar/desplegar
+// el Apps Script — el paso donde más se traban quienes lo hacen desde el
+// celular. Vacío por ahora: mientras no exista, no se muestra el link.
+const TUTORIAL_VIDEO_URL = '';
 
 // Colores fijos (no siguen el acento dinámico) solo para el paso "Conecta tu
 // Google Sheet" — pedido explícitamente para que ese paso se vea consistente
@@ -883,7 +907,7 @@ function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, suge
             <div className="w-full max-w-xs space-y-2.5 text-left">
               {[
                 { e: '🔒', t: 'Tus datos son tuyos', d: 'Todo vive en tu propio Google Sheet, no en un servidor de terceros.' },
-                { e: '👫', t: 'Para ti o en pareja', d: 'Registra por persona y compara, o úsala vos solo/a — se adapta en Ajustes.' },
+                { e: '👫', t: 'Para ti o en pareja', d: 'Registra por persona y compara, o úsala tú solo/a — se adapta en Ajustes.' },
                 { e: '📱', t: 'Funciona sin internet', d: 'Registra offline; se sincroniza cuando vuelves a conectarte.' },
               ].map(f => (
                 <div key={f.t} className={`flex items-start gap-2.5 rounded-xl border p-3 ${D.bgCard} ${D.border}`}>
@@ -923,7 +947,16 @@ function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, suge
         {paso === 2 && (
           <div className="flex-1 py-4">
             <h2 className={`font-serif text-xl font-semibold mb-1 ${D.text}`}>Conecta tu Google Sheet</h2>
-            <p className={`text-xs mb-4 ${D.textMuted}`}>Son 3 pasos rápidos, se pueden hacer desde el celular.</p>
+            <p className={`text-xs mb-2 ${D.textMuted}`}>
+              💡 Recomendado: hazlo desde una computadora — el paso de autorizar permisos de Google a veces falla en el navegador del celular.
+              {TUTORIAL_VIDEO_URL && ' Si prefieres el celular, mira el video paso a paso primero:'}
+            </p>
+            {TUTORIAL_VIDEO_URL && (
+              <a href={TUTORIAL_VIDEO_URL} target="_blank" rel="noopener noreferrer"
+                className={`inline-flex items-center gap-1.5 text-xs font-medium underline mb-4 ${D.textSub}`}>
+                📺 Ver video tutorial (2 min)
+              </a>
+            )}
 
             {/* 1. Duplicar plantilla */}
             <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: COLOR_SHEET_BG }}>
