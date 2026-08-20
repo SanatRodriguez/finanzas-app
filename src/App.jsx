@@ -86,8 +86,8 @@ function calcularSaldosAhorro(transacciones, cuentas) {
 }
 
 const DEFAULT_CONFIG = {
-  diaInicioMes: 23,
-  ajustarFinDeSemana: true,
+  diaInicioMes: 1,
+  ajustarFinDeSemana: false,
   moneda: 'S/.',
   persona: '',
   tema: 'claro',
@@ -102,7 +102,7 @@ const DEFAULT_CONFIG = {
   categoriasGastosExcluidos: ['pago_libre_giuli', 'pago_libre_sanat'],
   // true = uso en pareja (Planificación reparte el disponible 50/50);
   // false = uso individual (todo el disponible es para una sola persona).
-  modoPareja: true,
+  modoPareja: false,
 };
 
 const PAISES_LATAM = [
@@ -837,8 +837,13 @@ function Wizard({ config, setConfig, scriptUrl, setScriptUrl, onGuardarCat, suge
     if (!tempUrl.trim()) return;
     setTestStatus('testing');
     try {
-      await apiListSettings(tempUrl.trim());
-      setScriptUrl(tempUrl.trim());
+      const url = tempUrl.trim();
+      await apiListSettings(url);
+      setScriptUrl(url);
+      // El país se elige en el paso anterior, antes de conectar — si no se
+      // sincroniza aquí queda solo en este dispositivo (App_Settings vacío),
+      // y cualquier otra persona que se conecte a esta misma hoja no lo vería.
+      if (config.pais) { try { await apiSaveSetting(url, 'pais', config.pais); } catch {} }
       setTestStatus('ok');
     } catch {
       setTestStatus('error');
